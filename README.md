@@ -63,6 +63,7 @@ scripts/
   setup.sh     一键环境搭建（幂等，分阶段）      run.sh     一键运行 A / B / C
   detect-nic.sh / bind.sh / unbind.sh / check-env.sh
   ab.sh        A/B 按 ABBA 顺序交替多轮对比     run-c.sh   C（系统 ping）
+  summarize.py / summarize_c.py / report.py      汇总多轮结果、生成报告表格
 config/nic.env 自动探测生成的网卡参数
 docs/          REPORT.md（结果）、WORKLOG.md（开发记录）
 logs/          运行日志与 JSON 报告
@@ -92,6 +93,21 @@ logs/          运行日志与 JSON 报告
   主循环周期性调用 `rte_timer_manage()`（ENA watchdog 依赖应用驱动 rte_timer）；注册 reset 事件回调；
   空闲时主动 `tx_done_cleanup`，尽量不让 TX 回收落进段①。
 - **测量方法本身经过验证**（详见 §4）：发现并修正了 rdtsc 乱序执行造成的系统性偏差。
+
+### 测试与诊断工具
+
+```bash
+cargo test --release --workspace        # 15 个测试，不需要网卡 / root
+```
+
+| crate | 测试内容 |
+|---|---|
+| `rt`（7 个） | 用 `Runtime::run_offline()`（只跑 executor + timer，不驱动网卡）：sleep 按 deadline 顺序醒来且不早到；Mailbox 顺序交接；poll 期间自唤醒 1000 次不丢；**过期 waker 不会唤醒复用同一槽位的新任务**（做过变异测试：去掉代数检查后该测试失败）；drop runtime 时释放未完成 task 持有的资源（对应 mbuf 归还）；取消的 sleep 不误触发；死锁检测 |
+| `pingproto`（5 个） | 增量校验和与全量重算在 100 万组随机数据上逐位一致；帧布局与 IPv4 头校验和；reply 解析；ARP 原地应答 |
+| `pingkit` / `timerq`（3 个） | 直方图分桶边界与分位数精度；timer 堆顺序 |
+
+- `cargo build --release -p async-ping --features probe`：把段②拆成"分类+投递+wake / 回到 executor+出队 / poll 到恢复"三个子段打印（诊断用，默认关闭）。
+- `scripts/report.py --a <A.json> --b <B.json> [--c <C.json>...]`：从运行结果生成 `docs/REPORT.md` 里的表格。
 
 ## 4. 测量方法
 

@@ -12,3 +12,6 @@ timerq = { path = "../timerq" }
 [features]
 # 诊断：把段②拆成子段（见 src/probe.rs）。默认关闭。
 probe = []
+
+[dev-dependencies]
+dpdk = { path = "../dpdk" }

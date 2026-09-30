@@ -364,3 +364,15 @@ nosoftlockup nmi_watchdog=0 tsc=reliable
 **异常包诊断**：10 分钟的 A 和一次短测的 B 各出现过 1 个 "unexpected"（seq 对不上任何在途或已超时的请求）。出现次数与运行时长无关，所以不像随机的网络重复包。新增 `Stats::note_anomaly`（冷路径，最多记 16 条：id、seq、当时 session 的状态），写进报告。之后 4 轮 10 秒测试没有复现，属于偶发；它们不影响丢包对账。
 
 **git**：远端 `github.com/Chen-Shuai-CS/dpdk-async-ping`（公开），用仓库级 Deploy key 推送；首个提交已被 GitHub 关联到本人账号。
+
+## 2026-09-30 · 18 setup 幂等性验证；runtime 单元测试（含变异测试）
+
+**setup 幂等性**：在已配置好的机器上重跑完整的 `scripts/setup.sh`，8 个阶段 1.5 秒全部识别为"已完成"并跳过，没有误报需要重启。
+
+**runtime 单元测试**
+- 新增 `Runtime::run_offline()`：不驱动网卡，只跑 executor + timer，直到所有 task 结束；自带死锁检测（所有 task 都在等，却既无就绪任务也无待触发 timer → panic）。它让 runtime 的单测完全不依赖 DPDK、网卡和 root。
+- `crates/rt/tests/offline.rs`，7 个测试：sleep 按 deadline 顺序且不早到；Mailbox 顺序交接 100 个值；poll 期间自唤醒 1000 次不丢；**过期 waker 不会唤醒复用同一槽位的新任务**；drop runtime 时释放未完成 task 持有的资源（对应 mbuf 归还）；取消的 sleep 不误触发；死锁检测。
+- **变异测试**：把 executor 的代数检查临时改成永远为真，"过期 waker"测试立即失败（task 被 poll 3 次而非 2 次）→ 证明这个测试真的能抓到这类 bug；改回后全部通过。
+- 全仓库现有 15 个测试（rt 7、pingproto 5、pingkit 2、timerq 1），都不需要网卡。
+
+**为什么值得做**：之前 runtime 的正确性只靠真网卡上的端到端运行来证明。答辩时如果被问"边界情况怎么保证"，现在可以指着这些测试说明，包括用变异测试证明测试本身有效。

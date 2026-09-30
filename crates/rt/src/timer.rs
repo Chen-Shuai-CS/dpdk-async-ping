@@ -58,6 +58,11 @@ impl Timers {
         self.free.push(idx);
     }
 
+    /// 堆里还有没有 timer（含已取消、待弹出回收的）。
+    pub(crate) fn is_empty(&self) -> bool {
+        self.heap.is_empty()
+    }
+
     /// 触发所有 deadline ≤ now 的 timer。返回唤醒的数量。
     #[inline]
     pub(crate) fn fire(&mut self, now: u64) -> usize {

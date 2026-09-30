@@ -96,6 +96,11 @@ impl Executor {
         self.live.get()
     }
 
+    /// 就绪队列是否非空。
+    pub(crate) fn has_ready(&self) -> bool {
+        self.ready.len.get() > 0
+    }
+
     /// 把就绪队列跑空：出队 → poll → Ready 则释放任务槽。
     #[inline]
     pub(crate) fn run_ready(&self) {

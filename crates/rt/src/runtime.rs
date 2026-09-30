@@ -184,6 +184,25 @@ impl Runtime {
     }
 }
 
+impl Runtime {
+    /// 不驱动网卡，只跑 executor + timer，直到所有 task 结束。
+    /// 用于单元测试（不需要 DPDK / 网卡），也适用于纯 timer 的场景。在其中调用 [`with_port`] 会 panic。
+    ///
+    /// 若所有 task 都在等待、却既没有就绪任务也没有待触发的 timer，则 panic（死锁，永远不会再有人唤醒它们）。
+    pub fn run_offline(&self) {
+        let _enter = Enter::new(&self.core, self.id);
+        let core: &Core = &self.core;
+        core.exec.run_ready();
+        while core.exec.live() > 0 {
+            let fired = core.timers.borrow_mut().fire(rdtsc());
+            core.exec.run_ready();
+            if fired == 0 && core.timers.borrow().is_empty() && core.exec.live() > 0 && !core.exec.has_ready() {
+                panic!("rt::run_offline：{} 个 task 都在等待，但没有待触发的 timer，也没有就绪任务（死锁）", core.exec.live());
+            }
+        }
+    }
+}
+
 struct ClearPort<'a>(&'a Core);
 
 impl Drop for ClearPort<'_> {
