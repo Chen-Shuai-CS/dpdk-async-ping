@@ -1,0 +1,17 @@
+[package]
+name = "raw-ping"
+description = "B：手写 busy-poll 循环 + session 状态表实现的 ICMP ping。没有 executor、没有 Waker、没有 async task。A 的对照组。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "raw-ping"
+path = "src/main.rs"
+
+[dependencies]
+dpdk = { path = "../dpdk" }
+pingproto = { path = "../pingproto" }
+pingkit = { path = "../pingkit" }
+clap = { version = "4", features = ["derive", "env"] }
+serde_json = "1"

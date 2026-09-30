@@ -1,0 +1,206 @@
+{
+  "client": "A · async-ping（自研 rt runtime）",
+  "sessions": 64,
+  "delay_us": 500,
+  "duration_sec": 30,
+  "payload": 64,
+  "timeout_us": 10000,
+  "elapsed_sec": 30.001020515,
+  "tsc_hz": 2600000000,
+  "counters": {
+    "sent": 2908421,
+    "received": 2908421,
+    "timeouts": 0,
+    "late": 0,
+    "unexpected": 0,
+    "other_rx": 1,
+    "arp_replies": 0,
+    "tx_full": 0,
+    "no_mbuf": 0,
+    "in_flight_at_end": 0,
+    "rx_bursts": 2304713,
+    "rx_pkts": 2908422
+  },
+  "metrics": [
+    {
+      "name": "in-process ①+②  [排名指标]",
+      "count": 2908421,
+      "min": 60,
+      "mean": 195.80582384737286,
+      "p50": 180,
+      "p90": 250,
+      "p99": 360,
+      "p99_9": 469,
+      "p99_99": 610,
+      "max": 15720
+    },
+    {
+      "name": "seg① send  T1−T0",
+      "count": 2908421,
+      "min": 40,
+      "mean": 54.760816951878695,
+      "p50": 50,
+      "p90": 60,
+      "p99": 160,
+      "p99_9": 200,
+      "p99_99": 310,
+      "max": 3620
+    },
+    {
+      "name": "seg② recv  T3−T2",
+      "count": 2908421,
+      "min": 20,
+      "mean": 141.04500689549414,
+      "p50": 130,
+      "p90": 190,
+      "p99": 300,
+      "p99_9": 401,
+      "p99_99": 521,
+      "max": 15660
+    },
+    {
+      "name": "end-to-end T3−T0",
+      "count": 2908421,
+      "min": 54280,
+      "mean": 159985.57675453453,
+      "p50": 160295,
+      "p90": 163446,
+      "p99": 166596,
+      "p99_9": 243396,
+      "p99_99": 251273,
+      "max": 304970
+    },
+    {
+      "name": "seg③ wake→next T0",
+      "count": 2908421,
+      "min": 40,
+      "mean": 135.28835749707488,
+      "p50": 70,
+      "p90": 320,
+      "p99": 721,
+      "p99_9": 1129,
+      "p99_99": 1560,
+      "max": 6340
+    },
+    {
+      "name": "sleep error",
+      "count": 2908421,
+      "min": 0,
+      "mean": 33.25012993436856,
+      "p50": 10,
+      "p90": 100,
+      "p99": 270,
+      "p99_9": 790,
+      "p99_99": 2738,
+      "max": 69180
+    },
+    {
+      "name": "  (诊断) seg① 背靠背 <2µs",
+      "count": 2359787,
+      "min": 40,
+      "mean": 54.72162106156191,
+      "p50": 50,
+      "p90": 60,
+      "p99": 160,
+      "p99_9": 200,
+      "p99_99": 310,
+      "max": 3620
+    },
+    {
+      "name": "  (诊断) seg① 间隔 ≥2µs",
+      "count": 548634,
+      "min": 40,
+      "mean": 54.92940648957229,
+      "p50": 50,
+      "p90": 60,
+      "p99": 150,
+      "p99_9": 190,
+      "p99_99": 300,
+      "max": 2970
+    }
+  ],
+  "burst_sizes": [
+    [
+      1,
+      1799977
+    ],
+    [
+      2,
+      415821
+    ],
+    [
+      3,
+      78952
+    ],
+    [
+      4,
+      9908
+    ],
+    [
+      5,
+      39
+    ],
+    [
+      6,
+      9
+    ],
+    [
+      7,
+      2
+    ],
+    [
+      8,
+      2
+    ],
+    [
+      9,
+      1
+    ],
+    [
+      13,
+      1
+    ],
+    [
+      14,
+      1
+    ]
+  ],
+  "port": {
+    "ipackets": 2908422,
+    "opackets": 2908527,
+    "imissed": 0,
+    "ierrors": 0,
+    "oerrors": 0,
+    "rx_nombuf": 0,
+    "allowance_exceeded": [
+      [
+        "bw_in_allowance_exceeded",
+        0
+      ],
+      [
+        "bw_out_allowance_exceeded",
+        0
+      ],
+      [
+        "pps_allowance_exceeded",
+        0
+      ],
+      [
+        "conntrack_allowance_exceeded",
+        0
+      ],
+      [
+        "linklocal_allowance_exceeded",
+        0
+      ]
+    ]
+  },
+  "mbuf": {
+    "pool_size": 8191,
+    "avail_initial": 8191,
+    "avail_after_start": 7168,
+    "avail_final": 8191,
+    "in_use_final": 0
+  },
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾"
+}

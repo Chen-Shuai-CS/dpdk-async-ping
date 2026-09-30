@@ -1,0 +1,4 @@
+[1;34m[10:26:27][0m igb_uio：编译 dpdk-kmods 的 igb_uio（支持 wc_activate=1 写合并）
+Skipping BTF generation for igb_uio.ko due to unavailability of vmlinux
+[1;32m  ✔[0m igb_uio 已安装：/lib/modules/6.18.48-107.148.amzn2023.x86_64/extra/dpdk/igb_uio.ko（commit 9b182be）
+[1;34m[10:26:31][0m 完成：igb_uio

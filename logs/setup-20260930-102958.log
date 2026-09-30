@@ -1,0 +1,4 @@
+[1;34m[10:29:58][0m cmdline：写入内核启动参数（需要重启生效）
+[1;32m  ✔[0m 已写入："ro console=tty0 console=ttyS0,115200n8 nvme_core.io_timeout=4294967295 rd.emergency=poweroff rd.shell=0 selinux=1 security=selinux quiet default_hugepagesz=2M hugepagesz=2M hugepages=1024 isolcpus=managed_irq,domain,3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2 rcu_nocb_poll nosoftlockup nmi_watchdog=0 tsc=reliable"
+[1;34m[10:29:58][0m 完成：cmdline
+[1;33m  ! 内核启动参数已更新，需要重启后生效（请手动重启：sudo reboot）[0m

@@ -1,0 +1,21 @@
+[package]
+name = "async-ping"
+description = "A：跑在自研 rt runtime 上的 ICMP ping 客户端。每个 session 是一个独立的 async task。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "async-ping"
+path = "src/main.rs"
+
+[dependencies]
+dpdk = { path = "../dpdk" }
+pingproto = { path = "../pingproto" }
+pingkit = { path = "../pingkit" }
+rt = { path = "../rt" }
+clap = { version = "4", features = ["derive", "env"] }
+
+[features]
+# 诊断：把段②拆成三个子段打印（见 driver.rs / main.rs 中的 cfg(feature = "probe")）
+probe = ["rt/probe"]

@@ -1,0 +1,1000 @@
+[1;34m[10:25:50][0m dpdk：下载、编译、安装 DPDK 25.11.3 到 /usr/local
+The Meson build system
+Version: 0.63.3
+Source dir: /home/ec2-user/.cache/bq-build/dpdk-stable-25.11.3
+Build dir: /home/ec2-user/.cache/bq-build/dpdk-stable-25.11.3/build
+Build type: native build
+Project name: DPDK
+Project version: 25.11.3
+C compiler for the host machine: cc (gcc 11.5.0 "cc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-5)")
+C linker for the host machine: cc ld.bfd 2.41-50
+Host machine cpu family: x86_64
+Host machine cpu: x86_64
+Program pkg-config found: YES (/usr/bin/pkg-config)
+Program check-symbols.sh found: YES (/home/ec2-user/.cache/bq-build/dpdk-stable-25.11.3/buildtools/check-symbols.sh)
+Program options-ibverbs-static.sh found: YES (/home/ec2-user/.cache/bq-build/dpdk-stable-25.11.3/buildtools/options-ibverbs-static.sh)
+Program python3 found: YES (/usr/bin/python3)
+Program python3 (elftools) found: YES (/usr/bin/python3) modules: elftools
+Message: Minimum Meson required version is 0.57.2
+Program cat found: YES (/usr/bin/cat)
+Compiler for C supports arguments -march=native: YES 
+Checking for size of "void *" : 8
+Checking for size of "void *" : 8
+Compiler for C supports link arguments -Wl,--undefined-version: YES 
+Library m found: YES
+Library numa found: YES
+Has header "numaif.h" : YES 
+Library fdt found: NO
+Library execinfo found: NO
+Has header "execinfo.h" : YES 
+Found pkg-config: /usr/bin/pkg-config (1.8.0)
+Run-time dependency libarchive found: NO (tried pkgconfig)
+Run-time dependency libbsd found: NO (tried pkgconfig)
+Run-time dependency jansson found: NO (tried pkgconfig)
+Run-time dependency openssl found: NO (tried pkgconfig)
+Run-time dependency libpcap found: NO (tried pkgconfig)
+Library pcap found: NO
+Compiler for C supports arguments -Wvla: YES 
+Compiler for C supports arguments -Wcast-qual: YES 
+Compiler for C supports arguments -Wcomma: NO 
+Compiler for C supports arguments -Wdeprecated: YES 
+Compiler for C supports arguments -Wformat: YES 
+Compiler for C supports arguments -Wformat-nonliteral: YES 
+Compiler for C supports arguments -Wformat-security: YES 
+Compiler for C supports arguments -Wmissing-declarations: YES 
+Compiler for C supports arguments -Wmissing-prototypes: YES 
+Compiler for C supports arguments -Wnested-externs: YES 
+Compiler for C supports arguments -Wold-style-definition: YES 
+Compiler for C supports arguments -Wpointer-arith: YES 
+Compiler for C supports arguments -Wsign-compare: YES 
+Compiler for C supports arguments -Wstrict-prototypes: YES 
+Compiler for C supports arguments -Wundef: YES 
+Compiler for C supports arguments -Wwrite-strings: YES 
+Compiler for C supports arguments -Wno-packed-not-aligned: YES 
+Compiler for C supports arguments -Wno-missing-field-initializers: YES 
+Compiler for C supports arguments -fzero-init-padding-bits=all: NO 
+Fetching value of define "__AVX2__" : 1 
+Fetching value of define "__znver1__" :  
+Fetching value of define "__znver2__" :  
+Fetching value of define "__znver3__" :  
+Fetching value of define "__znver4__" : 1 
+Program objdump found: YES (/usr/bin/objdump)
+Compiler for C supports arguments -march=x86-64-v4: YES 
+Fetching value of define "__AVX512F__" : 1 
+Compiler for C supports arguments -march=x86-64-v4: YES (cached)
+Checking if "AVX512 checking" compiles: YES 
+Fetching value of define "__AVX512F__" : 1 
+Fetching value of define "__SSE4_2__" : 1 
+Fetching value of define "__AES__" : 1 
+Fetching value of define "__AVX__" : 1 
+Fetching value of define "__AVX2__" : 1 
+Fetching value of define "__AVX512BW__" : 1 
+Fetching value of define "__AVX512CD__" : 1 
+Fetching value of define "__AVX512DQ__" : 1 
+Fetching value of define "__AVX512F__" : 1 
+Fetching value of define "__AVX512VL__" : 1 
+Fetching value of define "__PCLMUL__" : 1 
+Fetching value of define "__RDRND__" : 1 
+Fetching value of define "__RDSEED__" : 1 
+Fetching value of define "__VPCLMULQDQ__" : 1 
+Compiler for C supports arguments -Wno-format-truncation: YES 
+Checking for function "pthread_attr_setaffinity_np" : YES 
+Checking for function "getentropy" : NO 
+Compiler for C supports arguments -mpclmul: YES 
+Compiler for C supports arguments -maes: YES 
+Compiler for C supports arguments -mvpclmulqdq: YES 
+Run-time dependency libelf found: YES 0.188
+lib/bpf/meson.build:51: WARNING: libpcap is missing, rte_bpf_convert API will be disabled
+Compiler for C supports arguments -mavx512ifma: YES 
+Has header "linux/userfaultfd.h" : YES 
+Compiler for C supports arguments -fno-strict-aliasing: YES 
+Compiler for C supports arguments -Wno-address-of-packed-member: YES 
+Compiler for C supports arguments -Wno-format-truncation: YES (cached)
+Compiler for C supports arguments -Wno-address-of-packed-member: YES (cached)
+Compiler for C supports arguments -Wno-comma: NO 
+Program doxygen found: NO
+Program sphinx-build found: NO
+Configuring rte_build_config.h using configuration
+Message: 
+=================
+Applications Enabled
+=================
+
+apps:
+	proc-info, test-pmd, 
+
+Message: 
+=================
+Libraries Enabled
+=================
+
+libs:
+	log, kvargs, argparse, telemetry, pmu, eal, ptr_compress, ring, 
+	rcu, mempool, mbuf, net, meter, ethdev, pci, cmdline, 
+	metrics, hash, timer, acl, bbdev, bitratestats, bpf, cfgfile, 
+	compressdev, cryptodev, distributor, dmadev, efd, eventdev, dispatcher, gpudev, 
+	gro, gso, ip_frag, jobstats, latencystats, lpm, member, pcapng, 
+	power, rawdev, regexdev, mldev, rib, reorder, sched, security, 
+	stack, vhost, ipsec, pdcp, fib, port, pdump, table, 
+	pipeline, graph, node, 
+
+Message: 
+===============
+Drivers Enabled
+===============
+
+common:
+	
+bus:
+	pci, vdev, 
+mempool:
+	ring, 
+dma:
+	
+net:
+	ena, null, ring, 
+raw:
+	
+crypto:
+	
+compress:
+	
+regex:
+	
+ml:
+	
+vdpa:
+	
+event:
+	
+baseband:
+	
+gpu:
+	
+power:
+	
+
+Message: 
+=================
+Content Skipped
+=================
+
+apps:
+	dumpcap:	not in enabled apps build config
+	graph:	not in enabled apps build config
+	pdump:	not in enabled apps build config
+	test-acl:	not in enabled apps build config
+	test-bbdev:	not in enabled apps build config
+	test-cmdline:	not in enabled apps build config
+	test-compress-perf:	not in enabled apps build config
+	test-crypto-perf:	not in enabled apps build config
+	test-dma-perf:	not in enabled apps build config
+	test-eventdev:	not in enabled apps build config
+	test-fib:	not in enabled apps build config
+	test-flow-perf:	not in enabled apps build config
+	test-gpudev:	not in enabled apps build config
+	test-mldev:	not in enabled apps build config
+	test-pipeline:	not in enabled apps build config
+	test-regex:	not in enabled apps build config
+	test-sad:	not in enabled apps build config
+	test-security-perf:	not in enabled apps build config
+	
+libs:
+	
+drivers:
+	common/cpt:	not in enabled drivers build config
+	common/dpaax:	not in enabled drivers build config
+	common/ionic:	not in enabled drivers build config
+	common/mvep:	not in enabled drivers build config
+	common/octeontx:	not in enabled drivers build config
+	bus/auxiliary:	not in enabled drivers build config
+	bus/cdx:	not in enabled drivers build config
+	bus/dpaa:	not in enabled drivers build config
+	bus/fslmc:	not in enabled drivers build config
+	bus/ifpga:	not in enabled drivers build config
+	bus/platform:	not in enabled drivers build config
+	bus/uacce:	not in enabled drivers build config
+	bus/vmbus:	not in enabled drivers build config
+	common/cnxk:	not in enabled drivers build config
+	common/mlx5:	not in enabled drivers build config
+	common/nfp:	not in enabled drivers build config
+	common/nitrox:	not in enabled drivers build config
+	common/qat:	not in enabled drivers build config
+	common/sfc_efx:	not in enabled drivers build config
+	common/zsda:	not in enabled drivers build config
+	mempool/bucket:	not in enabled drivers build config
+	mempool/cnxk:	not in enabled drivers build config
+	mempool/dpaa:	not in enabled drivers build config
+	mempool/dpaa2:	not in enabled drivers build config
+	mempool/octeontx:	not in enabled drivers build config
+	mempool/stack:	not in enabled drivers build config
+	dma/cnxk:	not in enabled drivers build config
+	dma/dpaa:	not in enabled drivers build config
+	dma/dpaa2:	not in enabled drivers build config
+	dma/hisi_acc:	not in enabled drivers build config
+	dma/hisi_pciep:	not in enabled drivers build config
+	dma/idxd:	not in enabled drivers build config
+	dma/ioat:	not in enabled drivers build config
+	dma/odm:	not in enabled drivers build config
+	dma/skeleton:	not in enabled drivers build config
+	net/af_packet:	not in enabled drivers build config
+	net/af_xdp:	not in enabled drivers build config
+	net/ark:	not in enabled drivers build config
+	net/atlantic:	not in enabled drivers build config
+	net/avp:	not in enabled drivers build config
+	net/axgbe:	not in enabled drivers build config
+	net/bnx2x:	not in enabled drivers build config
+	net/bnxt:	not in enabled drivers build config
+	net/bonding:	not in enabled drivers build config
+	net/cnxk:	not in enabled drivers build config
+	net/cxgbe:	not in enabled drivers build config
+	net/dpaa:	not in enabled drivers build config
+	net/dpaa2:	not in enabled drivers build config
+	net/enetc:	not in enabled drivers build config
+	net/enetfec:	not in enabled drivers build config
+	net/enic:	not in enabled drivers build config
+	net/failsafe:	not in enabled drivers build config
+	net/gve:	not in enabled drivers build config
+	net/hinic:	not in enabled drivers build config
+	net/hinic3:	not in enabled drivers build config
+	net/hns3:	not in enabled drivers build config
+	net/intel/e1000:	not in enabled drivers build config
+	net/intel/fm10k:	not in enabled drivers build config
+	net/intel/i40e:	not in enabled drivers build config
+	net/intel/iavf:	not in enabled drivers build config
+	net/intel/ice:	not in enabled drivers build config
+	net/intel/idpf:	not in enabled drivers build config
+	net/intel/ipn3ke:	not in enabled drivers build config
+	net/intel/ixgbe:	not in enabled drivers build config
+	net/intel/cpfl:	not in enabled drivers build config
+	net/ionic:	not in enabled drivers build config
+	net/mana:	not in enabled drivers build config
+	net/memif:	not in enabled drivers build config
+	net/mlx4:	not in enabled drivers build config
+	net/mlx5:	not in enabled drivers build config
+	net/mvneta:	not in enabled drivers build config
+	net/mvpp2:	not in enabled drivers build config
+	net/nbl:	not in enabled drivers build config
+	net/netvsc:	not in enabled drivers build config
+	net/nfb:	not in enabled drivers build config
+	net/nfp:	not in enabled drivers build config
+	net/ngbe:	not in enabled drivers build config
+	net/ntnic:	not in enabled drivers build config
+	net/octeontx:	not in enabled drivers build config
+	net/octeon_ep:	not in enabled drivers build config
+	net/pcap:	not in enabled drivers build config
+	net/pfe:	not in enabled drivers build config
+	net/qede:	not in enabled drivers build config
+	net/r8169:	not in enabled drivers build config
+	net/rnp:	not in enabled drivers build config
+	net/sfc:	not in enabled drivers build config
+	net/softnic:	not in enabled drivers build config
+	net/tap:	not in enabled drivers build config
+	net/thunderx:	not in enabled drivers build config
+	net/txgbe:	not in enabled drivers build config
+	net/vdev_netvsc:	not in enabled drivers build config
+	net/vhost:	not in enabled drivers build config
+	net/virtio:	not in enabled drivers build config
+	net/vmxnet3:	not in enabled drivers build config
+	net/xsc:	not in enabled drivers build config
+	net/zxdh:	not in enabled drivers build config
+	raw/cnxk_bphy:	not in enabled drivers build config
+	raw/cnxk_gpio:	not in enabled drivers build config
+	raw/cnxk_rvu_lf:	not in enabled drivers build config
+	raw/dpaa2_cmdif:	not in enabled drivers build config
+	raw/gdtc:	not in enabled drivers build config
+	raw/ifpga:	not in enabled drivers build config
+	raw/ntb:	not in enabled drivers build config
+	raw/skeleton:	not in enabled drivers build config
+	crypto/armv8:	not in enabled drivers build config
+	crypto/bcmfs:	not in enabled drivers build config
+	crypto/caam_jr:	not in enabled drivers build config
+	crypto/ccp:	not in enabled drivers build config
+	crypto/cnxk:	not in enabled drivers build config
+	crypto/dpaa_sec:	not in enabled drivers build config
+	crypto/dpaa2_sec:	not in enabled drivers build config
+	crypto/ionic:	not in enabled drivers build config
+	crypto/ipsec_mb:	not in enabled drivers build config
+	crypto/mlx5:	not in enabled drivers build config
+	crypto/mvsam:	not in enabled drivers build config
+	crypto/nitrox:	not in enabled drivers build config
+	crypto/null:	not in enabled drivers build config
+	crypto/octeontx:	not in enabled drivers build config
+	crypto/openssl:	not in enabled drivers build config
+	crypto/scheduler:	not in enabled drivers build config
+	crypto/uadk:	not in enabled drivers build config
+	crypto/virtio:	not in enabled drivers build config
+	compress/isal:	not in enabled drivers build config
+	compress/mlx5:	not in enabled drivers build config
+	compress/nitrox:	not in enabled drivers build config
+	compress/octeontx:	not in enabled drivers build config
+	compress/uadk:	not in enabled drivers build config
+	compress/zlib:	not in enabled drivers build config
+	regex/mlx5:	not in enabled drivers build config
+	regex/cn9k:	not in enabled drivers build config
+	ml/cnxk:	not in enabled drivers build config
+	vdpa/ifc:	not in enabled drivers build config
+	vdpa/mlx5:	not in enabled drivers build config
+	vdpa/nfp:	not in enabled drivers build config
+	vdpa/sfc:	not in enabled drivers build config
+	event/cnxk:	not in enabled drivers build config
+	event/dlb2:	not in enabled drivers build config
+	event/dpaa:	not in enabled drivers build config
+	event/dpaa2:	not in enabled drivers build config
+	event/dsw:	not in enabled drivers build config
+	event/octeontx:	not in enabled drivers build config
+	event/opdl:	not in enabled drivers build config
+	event/skeleton:	not in enabled drivers build config
+	event/sw:	not in enabled drivers build config
+	baseband/acc:	not in enabled drivers build config
+	baseband/fpga_5gnr_fec:	not in enabled drivers build config
+	baseband/fpga_lte_fec:	not in enabled drivers build config
+	baseband/la12xx:	not in enabled drivers build config
+	baseband/null:	not in enabled drivers build config
+	baseband/turbo_sw:	not in enabled drivers build config
+	gpu/cuda:	not in enabled drivers build config
+	power/acpi:	not in enabled drivers build config
+	power/amd_pstate:	not in enabled drivers build config
+	power/amd_uncore:	not in enabled drivers build config
+	power/cppc:	not in enabled drivers build config
+	power/intel_pstate:	not in enabled drivers build config
+	power/intel_uncore:	not in enabled drivers build config
+	power/kvm_vm:	not in enabled drivers build config
+	
+
+Message: DPDK build config complete:
+  source path = "/home/ec2-user/.cache/bq-build/dpdk-stable-25.11.3"
+  build path  = "/home/ec2-user/.cache/bq-build/dpdk-stable-25.11.3/build"
+Build targets in project: 212
+
+DPDK 25.11.3
+
+  User defined options
+    buildtype          : release
+    libdir             : lib64
+    prefix             : /usr/local
+    cpu_instruction_set: native
+    enable_apps        : test-pmd,proc-info
+    enable_docs        : false
+    enable_drivers     : bus/pci,bus/vdev,mempool/ring,net/ena,net/null,net/ring
+    tests              : false
+
+Found ninja-1.10.2 at /usr/bin/ninja
+ninja: Entering directory `build'
+[1/633] Generating lib/rte_log_map with a custom command
+[2/633] Compiling C object lib/librte_log.a.p/log_log_syslog.c.o
+[3/633] Compiling C object lib/librte_log.a.p/log_log_timestamp.c.o
+[4/633] Compiling C object lib/librte_log.a.p/log_log_color.c.o
+[5/633] Compiling C object lib/librte_log.a.p/log_log_journal.c.o
+[6/633] Generating lib/rte_kvargs_map with a custom command
+[7/633] Generating lib/rte_argparse_map with a custom command
+[8/633] Compiling C object lib/librte_log.a.p/log_log.c.o
+[9/633] Compiling C object lib/librte_kvargs.a.p/kvargs_rte_kvargs.c.o
+[10/633] Linking static target lib/librte_log.a
+[11/633] Linking target lib/librte_log.so.26.0
+[12/633] Linking static target lib/librte_kvargs.a
+[13/633] Generating lib/rte_telemetry_map with a custom command
+[14/633] Compiling C object lib/librte_telemetry.a.p/telemetry_telemetry_data.c.o
+[15/633] Compiling C object lib/librte_telemetry.a.p/telemetry_telemetry_legacy.c.o
+[16/633] Compiling C object lib/librte_argparse.a.p/argparse_rte_argparse.c.o
+[17/633] Generating lib/rte_pmu_map with a custom command
+[18/633] Linking static target lib/librte_argparse.a
+[19/633] Compiling C object lib/librte_pmu.a.p/pmu_pmu.c.o
+[20/633] Linking static target lib/librte_pmu.a
+[21/633] Generating symbol file lib/librte_log.so.26.0.p/librte_log.so.26.0.symbols
+[22/633] Linking target lib/librte_kvargs.so.26.0
+[23/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_class.c.o
+[24/633] Linking target lib/librte_argparse.so.26.0
+[25/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_bus.c.o
+[26/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_config.c.o
+[27/633] Linking target lib/librte_pmu.so.26.0
+[28/633] Compiling C object lib/librte_telemetry.a.p/telemetry_telemetry.c.o
+[29/633] Linking static target lib/librte_telemetry.a
+[30/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_debug.c.o
+[31/633] Linking target lib/librte_telemetry.so.26.0
+[32/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_errno.c.o
+[33/633] Generating symbol file lib/librte_kvargs.so.26.0.p/librte_kvargs.so.26.0.symbols
+[34/633] Generating symbol file lib/librte_argparse.so.26.0.p/librte_argparse.so.26.0.symbols
+[35/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_devargs.c.o
+[36/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_hexdump.c.o
+[37/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_dev.c.o
+[38/633] Generating symbol file lib/librte_telemetry.so.26.0.p/librte_telemetry.so.26.0.symbols
+[39/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_interrupts.c.o
+[40/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_fbarray.c.o
+[41/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_lcore_var.c.o
+[42/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_mcfg.c.o
+[43/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_launch.c.o
+[44/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_string_fns.c.o
+[45/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_memzone.c.o
+[46/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_memalloc.c.o
+[47/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_lcore.c.o
+[48/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_timer.c.o
+[49/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_tailqs.c.o
+[50/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_uuid.c.o
+[51/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_memory.c.o
+[52/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_thread.c.o
+[53/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_trace_points.c.o
+[54/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_options.c.o
+[55/633] Compiling C object lib/librte_eal.a.p/eal_common_rte_bitset.c.o
+[56/633] Compiling C object lib/librte_eal.a.p/eal_common_malloc_elem.c.o
+[57/633] Compiling C object lib/librte_eal.a.p/eal_common_rte_version.c.o
+[58/633] Compiling C object lib/librte_eal.a.p/eal_common_rte_reciprocal.c.o
+[59/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_cpuflags.c.o
+[60/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_hypervisor.c.o
+[61/633] Compiling C object lib/librte_eal.a.p/eal_common_rte_random.c.o
+[62/633] Compiling C object lib/librte_eal.a.p/eal_common_malloc_heap.c.o
+[63/633] Compiling C object lib/librte_eal.a.p/eal_common_rte_malloc.c.o
+[64/633] Compiling C object lib/librte_eal.a.p/eal_common_rte_service.c.o
+[65/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_proc.c.o
+[66/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_trace_ctf.c.o
+[67/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_trace.c.o
+[68/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_trace_utils.c.o
+[69/633] Compiling C object lib/librte_eal.a.p/eal_unix_eal_filesystem.c.o
+[70/633] Compiling C object lib/librte_eal.a.p/eal_common_hotplug_mp.c.o
+[71/633] Compiling C object lib/librte_eal.a.p/eal_unix_eal_debug.c.o
+[72/633] Compiling C object lib/librte_eal.a.p/eal_common_malloc_mp.c.o
+[73/633] Compiling C object lib/librte_eal.a.p/eal_common_rte_keepalive.c.o
+[74/633] Compiling C object lib/librte_eal.a.p/eal_unix_eal_file.c.o
+[75/633] Compiling C object lib/librte_ethdev.a.p/ethdev_ethdev_driver.c.o
+[76/633] Compiling C object lib/librte_eal.a.p/eal_common_eal_common_dynmem.c.o
+[77/633] Compiling C object lib/librte_eal.a.p/eal_unix_rte_basename.c.o
+[78/633] Compiling C object lib/librte_eal.a.p/eal_unix_eal_unix_memory.c.o
+[79/633] Compiling C object lib/librte_eal.a.p/eal_unix_eal_unix_thread.c.o
+[80/633] Compiling C object lib/librte_eal.a.p/eal_unix_eal_firmware.c.o
+[81/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_cpuflags.c.o
+[82/633] Compiling C object lib/librte_eal.a.p/eal_unix_eal_unix_timer.c.o
+[83/633] Compiling C object lib/librte_eal.a.p/eal_unix_rte_thread.c.o
+[84/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_lcore.c.o
+[85/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_alarm.c.o
+[86/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal.c.o
+[87/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_interrupts.c.o
+[88/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_dev.c.o
+[89/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_hugepage_info.c.o
+[90/633] Compiling C object lib/librte_eal.a.p/eal_x86_rte_cpuflags.c.o
+[91/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_memalloc.c.o
+[92/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_thread.c.o
+[93/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_timer.c.o
+[94/633] Compiling C object lib/librte_eal.a.p/eal_x86_rte_hypervisor.c.o
+[95/633] Compiling C object lib/librte_eal.a.p/eal_x86_rte_spinlock.c.o
+[96/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_vfio_mp_sync.c.o
+[97/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_memory.c.o
+[98/633] Compiling C object lib/librte_eal.a.p/eal_x86_rte_cycles.c.o
+[99/633] Generating lib/rte_ring_map with a custom command
+[100/633] Compiling C object lib/librte_eal.a.p/eal_x86_rte_mmu.c.o
+[101/633] Compiling C object lib/librte_eal.a.p/eal_x86_rte_power_intrinsics.c.o
+[102/633] Generating lib/rte_rcu_map with a custom command
+[103/633] Compiling C object lib/librte_eal.a.p/eal_linux_eal_vfio.c.o
+[104/633] Generating lib/rte_eal_map with a custom command
+[105/633] Compiling C object lib/librte_ring.a.p/ring_rte_soring.c.o
+[106/633] Linking static target lib/librte_eal.a
+[107/633] Linking target lib/librte_eal.so.26.0
+[108/633] Generating symbol file lib/librte_eal.so.26.0.p/librte_eal.so.26.0.symbols
+[109/633] Compiling C object lib/librte_rcu.a.p/rcu_rte_rcu_qsbr.c.o
+[110/633] Compiling C object lib/librte_ring.a.p/ring_rte_ring.c.o
+[111/633] Linking static target lib/librte_rcu.a
+[112/633] Compiling C object lib/librte_mempool.a.p/mempool_rte_mempool_ops.c.o
+[113/633] Generating lib/rte_mempool_map with a custom command
+[114/633] Compiling C object lib/librte_mempool.a.p/mempool_rte_mempool_ops_default.c.o
+[115/633] Compiling C object lib/librte_mempool.a.p/mempool_rte_mempool.c.o
+[116/633] Compiling C object lib/librte_mbuf.a.p/mbuf_rte_mbuf_ptype.c.o
+[117/633] Compiling C object lib/librte_mbuf.a.p/mbuf_mbuf_history.c.o
+[118/633] Compiling C object lib/librte_mempool.a.p/mempool_mempool_trace_points.c.o
+[119/633] Linking static target lib/librte_mempool.a
+[120/633] Generating lib/rte_mbuf_map with a custom command
+[121/633] Generating lib/rte_net_map with a custom command
+[122/633] Compiling C object lib/librte_mbuf.a.p/mbuf_rte_mbuf_pool_ops.c.o
+[123/633] Compiling C object lib/librte_mbuf.a.p/mbuf_rte_mbuf_dyn.c.o
+[124/633] Compiling C object lib/librte_net.a.p/net_rte_ether.c.o
+[125/633] Compiling C object lib/librte_mbuf.a.p/mbuf_rte_mbuf.c.o
+[126/633] Linking static target lib/librte_mbuf.a
+[127/633] Compiling C object lib/librte_net_avx512_lib.a.p/net_net_crc_avx512.c.o
+[128/633] Linking static target lib/librte_net_avx512_lib.a
+[129/633] Compiling C object lib/librte_net.a.p/net_rte_net.c.o
+[130/633] Compiling C object lib/librte_net.a.p/net_rte_arp.c.o
+[131/633] Generating lib/rte_meter_map with a custom command
+[132/633] Compiling C object lib/librte_net.a.p/net_rte_net_crc.c.o
+[133/633] Compiling C object lib/librte_net.a.p/net_net_crc_sse.c.o
+[134/633] Compiling C object lib/librte_meter.a.p/meter_rte_meter.c.o
+[135/633] Linking static target lib/librte_net.a
+[136/633] Linking static target lib/librte_meter.a
+[137/633] Compiling C object lib/librte_jobstats.a.p/jobstats_rte_jobstats.c.o
+[138/633] Linking target lib/librte_meter.so.26.0
+[139/633] Compiling C object lib/librte_ethdev.a.p/ethdev_ethdev_private.c.o
+[140/633] Compiling C object lib/librte_ip_frag.a.p/ip_frag_rte_ipv6_reassembly.c.o
+[141/633] Generating symbol file lib/librte_meter.so.26.0.p/librte_meter.so.26.0.symbols
+[142/633] Compiling C object lib/librte_ethdev.a.p/ethdev_sff_telemetry.c.o
+[143/633] Compiling C object lib/librte_ethdev.a.p/ethdev_ethdev_profile.c.o
+[144/633] Compiling C object lib/librte_ethdev.a.p/ethdev_rte_class_eth.c.o
+[145/633] Compiling C object lib/librte_ring.a.p/ring_soring.c.o
+[146/633] Linking static target lib/librte_ring.a
+[147/633] Compiling C object lib/librte_ethdev.a.p/ethdev_rte_ethdev_cman.c.o
+[148/633] Linking target lib/librte_ring.so.26.0
+[149/633] Compiling C object lib/librte_ethdev.a.p/ethdev_rte_tm.c.o
+[150/633] Compiling C object lib/librte_ethdev.a.p/ethdev_ethdev_trace_points.c.o
+[151/633] Generating symbol file lib/librte_ring.so.26.0.p/librte_ring.so.26.0.symbols
+[152/633] Compiling C object lib/librte_ethdev.a.p/ethdev_rte_ethdev_telemetry.c.o
+[153/633] Linking target lib/librte_rcu.so.26.0
+[154/633] Linking target lib/librte_mempool.so.26.0
+[155/633] Compiling C object lib/librte_ethdev.a.p/ethdev_sff_8472.c.o
+[156/633] Generating symbol file lib/librte_mempool.so.26.0.p/librte_mempool.so.26.0.symbols
+[157/633] Compiling C object lib/librte_ethdev.a.p/ethdev_rte_mtr.c.o
+[158/633] Generating symbol file lib/librte_rcu.so.26.0.p/librte_rcu.so.26.0.symbols
+[159/633] Linking target lib/librte_mbuf.so.26.0
+[160/633] Compiling C object lib/librte_ethdev.a.p/ethdev_rte_flow.c.o
+[161/633] Compiling C object lib/librte_pci.a.p/pci_rte_pci.c.o
+[162/633] Compiling C object lib/librte_ethdev.a.p/ethdev_sff_8636.c.o
+[163/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline.c.o
+[164/633] Compiling C object lib/librte_ethdev.a.p/ethdev_sff_8079.c.o
+[165/633] Linking static target lib/librte_pci.a
+[166/633] Generating lib/rte_pci_map with a custom command
+[167/633] Generating lib/rte_ethdev_map with a custom command
+[168/633] Compiling C object lib/librte_ethdev.a.p/ethdev_sff_common.c.o
+[169/633] Linking target lib/librte_pci.so.26.0
+[170/633] Generating symbol file lib/librte_mbuf.so.26.0.p/librte_mbuf.so.26.0.symbols
+[171/633] Compiling C object lib/librte_ethdev.a.p/ethdev_ethdev_linux_ethtool.c.o
+[172/633] Linking target lib/librte_net.so.26.0
+[173/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_cirbuf.c.o
+[174/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_parse.c.o
+[175/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_parse_etheraddr.c.o
+[176/633] Generating symbol file lib/librte_pci.so.26.0.p/librte_pci.so.26.0.symbols
+[177/633] Compiling C object lib/librte_metrics.a.p/metrics_rte_metrics_telemetry.c.o
+[178/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_parse_bool.c.o
+[179/633] Generating symbol file lib/librte_net.so.26.0.p/librte_net.so.26.0.symbols
+[180/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_parse_portlist.c.o
+[181/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_parse_string.c.o
+[182/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_vt100.c.o
+[183/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_parse_num.c.o
+[184/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_socket.c.o
+[185/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_os_unix.c.o
+[186/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_parse_ipaddr.c.o
+[187/633] Generating lib/rte_cmdline_map with a custom command
+[188/633] Generating lib/rte_metrics_map with a custom command
+[189/633] Compiling C object lib/librte_cmdline.a.p/cmdline_cmdline_rdline.c.o
+[190/633] Linking static target lib/librte_cmdline.a
+[191/633] Linking target lib/librte_cmdline.so.26.0
+[192/633] Compiling C object lib/librte_hash.a.p/hash_rte_hash_crc.c.o
+[193/633] Compiling C object lib/librte_metrics.a.p/metrics_rte_metrics.c.o
+[194/633] Linking static target lib/librte_metrics.a
+[195/633] Compiling C object lib/librte_timer.a.p/timer_rte_timer.c.o
+[196/633] Compiling C object lib/librte_hash.a.p/hash_rte_fbk_hash.c.o
+[197/633] Compiling C object lib/librte_ethdev.a.p/ethdev_rte_ethdev.c.o
+[198/633] Linking static target lib/librte_ethdev.a
+[199/633] Generating lib/rte_hash_map with a custom command
+[200/633] Linking static target lib/librte_timer.a
+[201/633] Compiling C object lib/librte_hash.a.p/hash_rte_thash.c.o
+[202/633] Linking target lib/librte_ethdev.so.26.0
+[203/633] Compiling C object lib/librte_hash.a.p/hash_rte_thash_gfni.c.o
+[204/633] Generating lib/rte_timer_map with a custom command
+[205/633] Linking target lib/librte_timer.so.26.0
+[206/633] Compiling C object lib/librte_hash.a.p/hash_rte_thash_gf2_poly_math.c.o
+[207/633] Generating symbol file lib/librte_ethdev.so.26.0.p/librte_ethdev.so.26.0.symbols
+[208/633] Linking target lib/librte_metrics.so.26.0
+[209/633] Generating symbol file lib/librte_timer.so.26.0.p/librte_timer.so.26.0.symbols
+[210/633] Compiling C object lib/librte_hash.a.p/hash_rte_cuckoo_hash.c.o
+[211/633] Linking static target lib/librte_hash.a
+[212/633] Generating symbol file lib/librte_metrics.so.26.0.p/librte_metrics.so.26.0.symbols
+[213/633] Linking target lib/librte_hash.so.26.0
+[214/633] Compiling C object lib/librte_acl.a.p/acl_acl_bld.c.o
+[215/633] Compiling C object lib/librte_acl.a.p/acl_acl_gen.c.o
+[216/633] Compiling C object lib/librte_acl.a.p/acl_acl_run_scalar.c.o
+[217/633] Compiling C object lib/librte_acl_avx2_lib.a.p/acl_acl_run_avx2.c.o
+[218/633] Linking static target lib/librte_acl_avx2_lib.a
+[219/633] Generating symbol file lib/librte_hash.so.26.0.p/librte_hash.so.26.0.symbols
+[220/633] Compiling C object lib/librte_acl.a.p/acl_rte_acl.c.o
+[221/633] Generating lib/rte_acl_map with a custom command
+[222/633] Compiling C object lib/librte_acl.a.p/acl_tb_mem.c.o
+[223/633] Generating lib/rte_bbdev_map with a custom command
+[224/633] Generating lib/rte_bitratestats_map with a custom command
+[225/633] Compiling C object lib/librte_acl_avx512_lib.a.p/acl_acl_run_avx512.c.o
+[226/633] Linking static target lib/librte_acl_avx512_lib.a
+[227/633] Compiling C object lib/librte_bbdev.a.p/bbdev_bbdev_trace_points.c.o
+[228/633] Compiling C object lib/librte_bitratestats.a.p/bitratestats_rte_bitrate.c.o
+[229/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf.c.o
+[230/633] Linking static target lib/librte_bitratestats.a
+[231/633] Linking target lib/librte_bitratestats.so.26.0
+[232/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf_exec.c.o
+[233/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf_dump.c.o
+[234/633] Compiling C object lib/librte_bbdev.a.p/bbdev_rte_bbdev.c.o
+[235/633] Linking static target lib/librte_bbdev.a
+[236/633] Compiling C object lib/librte_acl.a.p/acl_acl_run_sse.c.o
+[237/633] Linking static target lib/librte_acl.a
+[238/633] Linking target lib/librte_bbdev.so.26.0
+[239/633] Linking target lib/librte_acl.so.26.0
+[240/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf_stub.c.o
+[241/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf_load.c.o
+[242/633] Generating lib/rte_bpf_map with a custom command
+[243/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf_pkt.c.o
+[244/633] Generating symbol file lib/librte_acl.so.26.0.p/librte_acl.so.26.0.symbols
+[245/633] Generating lib/rte_cfgfile_map with a custom command
+[246/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf_validate.c.o
+[247/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf_load_elf.c.o
+[248/633] Generating lib/rte_compressdev_map with a custom command
+[249/633] Compiling C object lib/librte_table.a.p/table_rte_table_lpm.c.o
+[250/633] Compiling C object lib/librte_cfgfile.a.p/cfgfile_rte_cfgfile.c.o
+[251/633] Linking target lib/librte_cfgfile.so.26.0
+[252/633] Linking static target lib/librte_cfgfile.a
+[253/633] Compiling C object lib/librte_table.a.p/table_rte_table_lpm_ipv6.c.o
+[254/633] Compiling C object lib/librte_compressdev.a.p/compressdev_rte_compressdev.c.o
+[255/633] Compiling C object lib/librte_bpf.a.p/bpf_bpf_jit_x86.c.o
+[256/633] Linking static target lib/librte_bpf.a
+[257/633] Generating lib/rte_cryptodev_map with a custom command
+[258/633] Linking target lib/librte_bpf.so.26.0
+[259/633] Compiling C object lib/librte_compressdev.a.p/compressdev_rte_comp.c.o
+[260/633] Compiling C object lib/librte_cryptodev.a.p/cryptodev_cryptodev_pmd.c.o
+[261/633] Compiling C object lib/librte_compressdev.a.p/compressdev_rte_compressdev_pmd.c.o
+[262/633] Linking static target lib/librte_compressdev.a
+[263/633] Linking target lib/librte_compressdev.so.26.0
+[264/633] Generating lib/rte_distributor_map with a custom command
+[265/633] Compiling C object lib/librte_cryptodev.a.p/cryptodev_cryptodev_trace_points.c.o
+[266/633] Compiling C object lib/librte_distributor.a.p/distributor_rte_distributor_single.c.o
+[267/633] Generating symbol file lib/librte_bpf.so.26.0.p/librte_bpf.so.26.0.symbols
+[268/633] Compiling C object lib/librte_distributor.a.p/distributor_rte_distributor_match_sse.c.o
+[269/633] Generating lib/rte_dmadev_map with a custom command
+[270/633] Compiling C object lib/librte_dmadev.a.p/dmadev_rte_dmadev_trace_points.c.o
+[271/633] Generating lib/rte_efd_map with a custom command
+[272/633] Compiling C object lib/librte_distributor.a.p/distributor_rte_distributor.c.o
+[273/633] Compiling C object lib/librte_eventdev.a.p/eventdev_eventdev_private.c.o
+[274/633] Linking static target lib/librte_distributor.a
+[275/633] Linking target lib/librte_distributor.so.26.0
+[276/633] Compiling C object lib/librte_eventdev.a.p/eventdev_eventdev_trace_points.c.o
+[277/633] Compiling C object lib/librte_dmadev.a.p/dmadev_rte_dmadev.c.o
+[278/633] Linking static target lib/librte_dmadev.a
+[279/633] Linking target lib/librte_dmadev.so.26.0
+[280/633] Compiling C object lib/librte_eventdev.a.p/eventdev_rte_event_dma_adapter.c.o
+[281/633] Compiling C object lib/librte_cryptodev.a.p/cryptodev_rte_cryptodev.c.o
+[282/633] Linking static target lib/librte_cryptodev.a
+[283/633] Compiling C object lib/librte_efd.a.p/efd_rte_efd.c.o
+[284/633] Linking target lib/librte_cryptodev.so.26.0
+[285/633] Linking static target lib/librte_efd.a
+[286/633] Linking target lib/librte_efd.so.26.0
+[287/633] Generating symbol file lib/librte_dmadev.so.26.0.p/librte_dmadev.so.26.0.symbols
+[288/633] Compiling C object lib/librte_eventdev.a.p/eventdev_rte_event_crypto_adapter.c.o
+[289/633] Generating symbol file lib/librte_cryptodev.so.26.0.p/librte_cryptodev.so.26.0.symbols
+[290/633] Compiling C object lib/librte_eventdev.a.p/eventdev_rte_event_ring.c.o
+[291/633] Generating lib/rte_eventdev_map with a custom command
+[292/633] Compiling C object lib/librte_eventdev.a.p/eventdev_rte_event_timer_adapter.c.o
+[293/633] Generating lib/rte_dispatcher_map with a custom command
+[294/633] Compiling C object lib/librte_eventdev.a.p/eventdev_rte_event_eth_tx_adapter.c.o
+[295/633] Compiling C object lib/librte_eventdev.a.p/eventdev_rte_event_vector_adapter.c.o
+[296/633] Generating lib/rte_gpudev_map with a custom command
+[297/633] Compiling C object lib/librte_dispatcher.a.p/dispatcher_rte_dispatcher.c.o
+[298/633] Linking static target lib/librte_dispatcher.a
+[299/633] Compiling C object lib/librte_gpudev.a.p/gpudev_gpudev.c.o
+[300/633] Linking static target lib/librte_gpudev.a
+[301/633] Linking target lib/librte_gpudev.so.26.0
+[302/633] Compiling C object lib/librte_eventdev.a.p/eventdev_rte_event_eth_rx_adapter.c.o
+[303/633] Compiling C object lib/librte_gro.a.p/gro_rte_gro.c.o
+[304/633] Compiling C object lib/librte_gro.a.p/gro_gro_tcp4.c.o
+[305/633] Compiling C object lib/librte_gro.a.p/gro_gro_tcp6.c.o
+[306/633] Generating lib/rte_gro_map with a custom command
+[307/633] Compiling C object lib/librte_eventdev.a.p/eventdev_rte_eventdev.c.o
+[308/633] Linking static target lib/librte_eventdev.a
+[309/633] Linking target lib/librte_eventdev.so.26.0
+[310/633] Compiling C object lib/librte_gro.a.p/gro_gro_vxlan_tcp4.c.o
+[311/633] Compiling C object lib/librte_gro.a.p/gro_gro_vxlan_udp4.c.o
+[312/633] Compiling C object lib/librte_gso.a.p/gso_gso_tcp4.c.o
+[313/633] Compiling C object lib/librte_gro.a.p/gro_gro_udp4.c.o
+[314/633] Generating lib/rte_gso_map with a custom command
+[315/633] Linking static target lib/librte_gro.a
+[316/633] Linking target lib/librte_gro.so.26.0
+[317/633] Compiling C object lib/librte_gso.a.p/gso_gso_udp4.c.o
+[318/633] Generating symbol file lib/librte_eventdev.so.26.0.p/librte_eventdev.so.26.0.symbols
+[319/633] Compiling C object lib/librte_gso.a.p/gso_gso_common.c.o
+[320/633] Linking target lib/librte_dispatcher.so.26.0
+[321/633] Compiling C object lib/librte_gso.a.p/gso_gso_tunnel_tcp4.c.o
+[322/633] Compiling C object lib/librte_gso.a.p/gso_gso_tunnel_udp4.c.o
+[323/633] Compiling C object lib/librte_gso.a.p/gso_rte_gso.c.o
+[324/633] Compiling C object lib/librte_ip_frag.a.p/ip_frag_rte_ipv4_fragmentation.c.o
+[325/633] Compiling C object lib/librte_ip_frag.a.p/ip_frag_rte_ip_frag_common.c.o
+[326/633] Generating lib/rte_ip_frag_map with a custom command
+[327/633] Linking target lib/librte_gso.so.26.0
+[328/633] Linking static target lib/librte_gso.a
+[329/633] Linking static target lib/librte_jobstats.a
+[330/633] Generating lib/rte_jobstats_map with a custom command
+[331/633] Compiling C object lib/librte_ip_frag.a.p/ip_frag_rte_ipv6_fragmentation.c.o
+[332/633] Generating lib/rte_latencystats_map with a custom command
+[333/633] Linking target lib/librte_jobstats.so.26.0
+[334/633] Compiling C object lib/librte_ip_frag.a.p/ip_frag_ip_frag_internal.c.o
+[335/633] Generating lib/rte_lpm_map with a custom command
+[336/633] Compiling C object lib/librte_ip_frag.a.p/ip_frag_rte_ipv4_reassembly.c.o
+[337/633] Linking static target lib/librte_ip_frag.a
+[338/633] Linking target lib/librte_ip_frag.so.26.0
+[339/633] Compiling C object lib/librte_member.a.p/member_rte_member.c.o
+[340/633] Compiling C object lib/librte_member_avx512_lib.a.p/member_rte_member_sketch_avx512.c.o
+[341/633] Generating symbol file lib/librte_ip_frag.so.26.0.p/librte_ip_frag.so.26.0.symbols
+[342/633] Linking static target lib/librte_member_avx512_lib.a
+[343/633] Compiling C object lib/librte_latencystats.a.p/latencystats_rte_latencystats.c.o
+[344/633] Linking static target lib/librte_latencystats.a
+[345/633] Compiling C object lib/librte_lpm.a.p/lpm_rte_lpm6.c.o
+[346/633] Linking target lib/librte_latencystats.so.26.0
+[347/633] Compiling C object lib/librte_lpm.a.p/lpm_rte_lpm.c.o
+[348/633] Generating lib/rte_member_map with a custom command
+[349/633] Linking static target lib/librte_lpm.a
+[350/633] Generating lib/rte_pcapng_map with a custom command
+[351/633] Linking target lib/librte_lpm.so.26.0
+[352/633] Compiling C object lib/librte_power.a.p/power_power_common.c.o
+[353/633] Compiling C object lib/librte_member.a.p/member_rte_member_vbf.c.o
+[354/633] Compiling C object lib/librte_member.a.p/member_rte_member_ht.c.o
+[355/633] Compiling C object lib/librte_power.a.p/power_rte_power_qos.c.o
+[356/633] Compiling C object lib/librte_pcapng.a.p/pcapng_rte_pcapng.c.o
+[357/633] Compiling C object lib/librte_power.a.p/power_rte_power_cpufreq.c.o
+[358/633] Linking static target lib/librte_pcapng.a
+[359/633] Generating symbol file lib/librte_lpm.so.26.0.p/librte_lpm.so.26.0.symbols
+[360/633] Generating lib/rte_power_map with a custom command
+[361/633] Linking target lib/librte_pcapng.so.26.0
+[362/633] Generating lib/rte_rawdev_map with a custom command
+[363/633] Compiling C object lib/librte_power.a.p/power_rte_power_pmd_mgmt.c.o
+[364/633] Compiling C object lib/librte_member.a.p/member_rte_member_sketch.c.o
+[365/633] Generating lib/rte_regexdev_map with a custom command
+[366/633] Compiling C object lib/librte_power.a.p/power_rte_power_uncore.c.o
+[367/633] Linking static target lib/librte_member.a
+[368/633] Linking static target lib/librte_power.a
+[369/633] Linking target lib/librte_member.so.26.0
+[370/633] Linking target lib/librte_power.so.26.0
+[371/633] Compiling C object lib/librte_rawdev.a.p/rawdev_rte_rawdev.c.o
+[372/633] Linking static target lib/librte_rawdev.a
+[373/633] Linking target lib/librte_rawdev.so.26.0
+[374/633] Generating symbol file lib/librte_pcapng.so.26.0.p/librte_pcapng.so.26.0.symbols
+[375/633] Compiling C object lib/librte_regexdev.a.p/regexdev_rte_regexdev.c.o
+[376/633] Linking static target lib/librte_regexdev.a
+[377/633] Linking target lib/librte_regexdev.so.26.0
+[378/633] Generating lib/rte_mldev_map with a custom command
+[379/633] Compiling C object lib/librte_mldev.a.p/mldev_mldev_utils.c.o
+[380/633] Compiling C object lib/librte_mldev.a.p/mldev_rte_mldev_pmd.c.o
+[381/633] Generating lib/rte_rib_map with a custom command
+[382/633] Compiling C object lib/librte_mldev.a.p/mldev_rte_mldev.c.o
+[383/633] Compiling C object lib/librte_rib.a.p/rib_rte_rib.c.o
+[384/633] Compiling C object lib/librte_mldev.a.p/mldev_mldev_utils_scalar.c.o
+[385/633] Compiling C object lib/librte_mldev.a.p/mldev_mldev_utils_scalar_bfloat16.c.o
+[386/633] Generating lib/rte_reorder_map with a custom command
+[387/633] Linking static target lib/librte_mldev.a
+[388/633] Linking target lib/librte_mldev.so.26.0
+[389/633] Compiling C object lib/librte_sched.a.p/sched_rte_approx.c.o
+[390/633] Compiling C object lib/librte_rib.a.p/rib_rte_rib6.c.o
+[391/633] Compiling C object lib/librte_reorder.a.p/reorder_rte_reorder.c.o
+[392/633] Linking static target lib/librte_rib.a
+[393/633] Linking static target lib/librte_reorder.a
+[394/633] Generating lib/rte_sched_map with a custom command
+[395/633] Compiling C object lib/librte_sched.a.p/sched_rte_red.c.o
+[396/633] Linking target lib/librte_rib.so.26.0
+[397/633] Linking target lib/librte_reorder.so.26.0
+[398/633] Generating lib/rte_security_map with a custom command
+[399/633] Compiling C object lib/librte_sched.a.p/sched_rte_pie.c.o
+[400/633] Compiling C object lib/librte_security.a.p/security_rte_security.c.o
+[401/633] Generating symbol file lib/librte_rib.so.26.0.p/librte_rib.so.26.0.symbols
+[402/633] Linking static target lib/librte_security.a
+[403/633] Compiling C object lib/librte_stack.a.p/stack_rte_stack.c.o
+[404/633] Compiling C object lib/librte_stack.a.p/stack_rte_stack_std.c.o
+[405/633] Linking target lib/librte_security.so.26.0
+[406/633] Generating symbol file lib/librte_reorder.so.26.0.p/librte_reorder.so.26.0.symbols
+[407/633] Generating lib/rte_stack_map with a custom command
+[408/633] Compiling C object lib/librte_vhost.a.p/vhost_fd_man.c.o
+[409/633] Compiling C object lib/librte_stack.a.p/stack_rte_stack_lf.c.o
+[410/633] Linking static target lib/librte_stack.a
+[411/633] Linking target lib/librte_stack.so.26.0
+[412/633] Compiling C object lib/librte_sched.a.p/sched_rte_sched.c.o
+[413/633] Linking static target lib/librte_sched.a
+[414/633] Compiling C object lib/librte_vhost.a.p/vhost_iotlb.c.o
+[415/633] Linking target lib/librte_sched.so.26.0
+[416/633] Generating lib/rte_vhost_map with a custom command
+[417/633] Compiling C object lib/librte_vhost.a.p/vhost_socket.c.o
+[418/633] Generating symbol file lib/librte_security.so.26.0.p/librte_security.so.26.0.symbols
+[419/633] Compiling C object lib/librte_vhost.a.p/vhost_vdpa.c.o
+[420/633] Generating symbol file lib/librte_sched.so.26.0.p/librte_sched.so.26.0.symbols
+[421/633] Compiling C object lib/librte_vhost.a.p/vhost_vduse.c.o
+[422/633] Compiling C object lib/librte_vhost.a.p/vhost_virtio_net_ctrl.c.o
+[423/633] Compiling C object lib/librte_vhost.a.p/vhost_vhost_user.c.o
+[424/633] Compiling C object lib/librte_vhost.a.p/vhost_vhost.c.o
+[425/633] Compiling C object lib/librte_ipsec.a.p/ipsec_esp_inb.c.o
+[426/633] Compiling C object lib/librte_ipsec.a.p/ipsec_ses.c.o
+[427/633] Compiling C object lib/librte_ipsec.a.p/ipsec_sa.c.o
+[428/633] Generating lib/rte_ipsec_map with a custom command
+[429/633] Compiling C object lib/librte_ipsec.a.p/ipsec_ipsec_sad.c.o
+[430/633] Compiling C object lib/librte_ipsec.a.p/ipsec_esp_outb.c.o
+[431/633] Compiling C object lib/librte_ipsec.a.p/ipsec_ipsec_telemetry.c.o
+[432/633] Linking static target lib/librte_ipsec.a
+[433/633] Compiling C object lib/librte_pdcp.a.p/pdcp_pdcp_cnt.c.o
+[434/633] Linking target lib/librte_ipsec.so.26.0
+[435/633] Compiling C object lib/librte_pdcp.a.p/pdcp_pdcp_crypto.c.o
+[436/633] Compiling C object lib/librte_pdcp.a.p/pdcp_pdcp_ctrl_pdu.c.o
+[437/633] Compiling C object lib/librte_pdcp.a.p/pdcp_pdcp_reorder.c.o
+[438/633] Generating lib/rte_pdcp_map with a custom command
+[439/633] Generating symbol file lib/librte_ipsec.so.26.0.p/librte_ipsec.so.26.0.symbols
+[440/633] Compiling C object lib/librte_pdcp.a.p/pdcp_rte_pdcp.c.o
+[441/633] Generating lib/rte_fib_map with a custom command
+[442/633] Compiling C object lib/librte_fib_avx512_lib.a.p/fib_trie_avx512.c.o
+[443/633] Compiling C object lib/librte_fib.a.p/fib_rte_fib.c.o
+[444/633] Compiling C object lib/librte_pdcp.a.p/pdcp_pdcp_process.c.o
+[445/633] Linking static target lib/librte_pdcp.a
+[446/633] Compiling C object lib/librte_fib_avx512_lib.a.p/fib_dir24_8_avx512.c.o
+[447/633] Linking target lib/librte_pdcp.so.26.0
+[448/633] Linking static target lib/librte_fib_avx512_lib.a
+[449/633] Compiling C object lib/librte_fib.a.p/fib_rte_fib6.c.o
+[450/633] Compiling C object lib/librte_port.a.p/port_port_log.c.o
+[451/633] Generating lib/rte_pdump_map with a custom command
+[452/633] Compiling C object lib/librte_vhost.a.p/vhost_vhost_crypto.c.o
+[453/633] Compiling C object lib/librte_fib.a.p/fib_dir24_8.c.o
+[454/633] Compiling C object lib/librte_port.a.p/port_rte_port_ethdev.c.o
+[455/633] Compiling C object lib/librte_port.a.p/port_rte_port_frag.c.o
+[456/633] Compiling C object lib/librte_port.a.p/port_rte_port_fd.c.o
+[457/633] Compiling C object lib/librte_fib.a.p/fib_trie.c.o
+[458/633] Linking static target lib/librte_fib.a
+[459/633] Compiling C object lib/librte_port.a.p/port_rte_port_sched.c.o
+[460/633] Linking target lib/librte_fib.so.26.0
+[461/633] Compiling C object lib/librte_port.a.p/port_rte_port_sym_crypto.c.o
+[462/633] Compiling C object lib/librte_port.a.p/port_rte_port_ras.c.o
+[463/633] Generating symbol file lib/librte_fib.so.26.0.p/librte_fib.so.26.0.symbols
+[464/633] Compiling C object lib/librte_port.a.p/port_rte_port_source_sink.c.o
+[465/633] Compiling C object lib/librte_port.a.p/port_rte_port_ring.c.o
+[466/633] Compiling C object lib/librte_port.a.p/port_rte_swx_port_ethdev.c.o
+[467/633] Compiling C object lib/librte_port.a.p/port_rte_swx_port_source_sink.c.o
+[468/633] Generating lib/rte_port_map with a custom command
+[469/633] Compiling C object lib/librte_port.a.p/port_rte_swx_port_ring.c.o
+[470/633] Compiling C object lib/librte_port.a.p/port_rte_port_eventdev.c.o
+[471/633] Compiling C object lib/librte_port.a.p/port_rte_swx_port_fd.c.o
+[472/633] Linking static target lib/librte_port.a
+[473/633] Compiling C object lib/librte_table.a.p/table_rte_swx_keycmp.c.o
+[474/633] Linking target lib/librte_port.so.26.0
+[475/633] Compiling C object lib/librte_table.a.p/table_rte_swx_table_em.c.o
+[476/633] Compiling C object lib/librte_pdump.a.p/pdump_rte_pdump.c.o
+[477/633] Linking static target lib/librte_pdump.a
+[478/633] Linking target lib/librte_pdump.so.26.0
+[479/633] Compiling C object lib/librte_table.a.p/table_rte_swx_table_learner.c.o
+[480/633] Compiling C object lib/librte_table.a.p/table_rte_swx_table_wm.c.o
+[481/633] Compiling C object lib/librte_table.a.p/table_rte_swx_table_selector.c.o
+[482/633] Generating symbol file lib/librte_port.so.26.0.p/librte_port.so.26.0.symbols
+[483/633] Compiling C object lib/librte_table.a.p/table_rte_table_array.c.o
+[484/633] Compiling C object lib/librte_table.a.p/table_rte_table_hash_key8.c.o
+[485/633] Compiling C object lib/librte_table.a.p/table_rte_table_hash_cuckoo.c.o
+[486/633] Compiling C object lib/librte_table.a.p/table_rte_table_hash_ext.c.o
+[487/633] Generating lib/rte_table_map with a custom command
+[488/633] Compiling C object lib/librte_table.a.p/table_rte_table_acl.c.o
+[489/633] Compiling C object lib/librte_table.a.p/table_table_log.c.o
+[490/633] Compiling C object lib/librte_table.a.p/table_rte_table_stub.c.o
+[491/633] Compiling C object lib/librte_table.a.p/table_rte_table_hash_key32.c.o
+[492/633] Compiling C object lib/librte_table.a.p/table_rte_table_hash_key16.c.o
+[493/633] Compiling C object lib/librte_pipeline.a.p/pipeline_rte_port_in_action.c.o
+[494/633] Compiling C object lib/librte_table.a.p/table_rte_table_hash_lru.c.o
+[495/633] Linking static target lib/librte_table.a
+[496/633] Linking target lib/librte_table.so.26.0
+[497/633] Compiling C object lib/librte_pipeline.a.p/pipeline_rte_pipeline.c.o
+[498/633] Compiling C object lib/librte_pipeline.a.p/pipeline_rte_swx_ipsec.c.o
+[499/633] Generating symbol file lib/librte_table.so.26.0.p/librte_table.so.26.0.symbols
+[500/633] Generating lib/rte_pipeline_map with a custom command
+[501/633] Compiling C object lib/librte_graph.a.p/graph_node.c.o
+[502/633] Compiling C object lib/librte_pipeline.a.p/pipeline_rte_swx_pipeline_spec.c.o
+[503/633] Compiling C object lib/librte_graph.a.p/graph_rte_graph_worker.c.o
+[504/633] Compiling C object lib/librte_graph.a.p/graph_graph_ops.c.o
+[505/633] Compiling C object lib/librte_graph.a.p/graph_rte_graph_model_mcore_dispatch.c.o
+[506/633] Compiling C object lib/librte_pipeline.a.p/pipeline_rte_swx_ctl.c.o
+[507/633] Compiling C object lib/librte_graph.a.p/graph_graph_debug.c.o
+[508/633] Compiling C object lib/librte_graph.a.p/graph_graph_populate.c.o
+[509/633] Compiling C object lib/librte_graph.a.p/graph_graph.c.o
+[510/633] Compiling C object lib/librte_graph.a.p/graph_graph_stats.c.o
+[511/633] Generating lib/rte_graph_map with a custom command
+[512/633] Compiling C object lib/librte_graph.a.p/graph_graph_pcap.c.o
+[513/633] Compiling C object lib/librte_node.a.p/node_ethdev_ctrl.c.o
+[514/633] Compiling C object lib/librte_vhost.a.p/vhost_virtio_net.c.o
+[515/633] Linking static target lib/librte_vhost.a
+[516/633] Linking target lib/librte_vhost.so.26.0
+[517/633] Compiling C object lib/librte_graph.a.p/graph_graph_feature_arc.c.o
+[518/633] Linking static target lib/librte_graph.a
+[519/633] Compiling C object lib/librte_node.a.p/node_ethdev_rx.c.o
+[520/633] Linking target lib/librte_graph.so.26.0
+[521/633] Compiling C object lib/librte_node.a.p/node_pkt_cls.c.o
+[522/633] Compiling C object lib/librte_node.a.p/node_pkt_drop.c.o
+[523/633] Compiling C object lib/librte_node.a.p/node_node_mbuf_dynfield.c.o
+[524/633] Generating symbol file lib/librte_graph.so.26.0.p/librte_graph.so.26.0.symbols
+[525/633] Compiling C object lib/librte_node.a.p/node_ip4_lookup.c.o
+[526/633] Compiling C object lib/librte_node.a.p/node_ethdev_tx.c.o
+[527/633] Compiling C object lib/librte_node.a.p/node_ip4_local.c.o
+[528/633] Compiling C object lib/librte_node.a.p/node_interface_tx_feature.c.o
+[529/633] Compiling C object lib/librte_node.a.p/node_ip4_reassembly.c.o
+[530/633] Compiling C object lib/librte_node.a.p/node_ip4_lookup_fib.c.o
+[531/633] Compiling C object lib/librte_node.a.p/node_ip6_lookup.c.o
+[532/633] Compiling C object lib/librte_node.a.p/node_ip6_rewrite.c.o
+[533/633] Compiling C object lib/librte_node.a.p/node_kernel_tx.c.o
+[534/633] Compiling C object lib/librte_node.a.p/node_null.c.o
+[535/633] Compiling C object lib/librte_node.a.p/node_ip6_lookup_fib.c.o
+[536/633] Compiling C object lib/librte_pipeline.a.p/pipeline_rte_swx_pipeline.c.o
+[537/633] Compiling C object lib/librte_node.a.p/node_kernel_rx.c.o
+[538/633] Generating lib/rte_node_map with a custom command
+[539/633] Compiling C object drivers/libtmp_rte_bus_pci.a.p/bus_pci_pci_params.c.o
+[540/633] Compiling C object drivers/libtmp_rte_bus_pci.a.p/bus_pci_pci_common.c.o
+[541/633] Compiling C object lib/librte_node.a.p/node_log.c.o
+[542/633] Compiling C object drivers/libtmp_rte_bus_pci.a.p/bus_pci_pci_common_uio.c.o
+[543/633] Compiling C object lib/librte_node.a.p/node_ip4_rewrite.c.o
+[544/633] Generating drivers/rte_bus_pci_map with a custom command
+[545/633] Compiling C object lib/librte_node.a.p/node_udp4_input.c.o
+[546/633] Compiling C object drivers/libtmp_rte_bus_pci.a.p/bus_pci_linux_pci.c.o
+[547/633] Linking static target lib/librte_node.a
+[548/633] Compiling C object drivers/libtmp_rte_bus_pci.a.p/bus_pci_linux_pci_uio.c.o
+[549/633] Generating drivers/rte_bus_vdev_map with a custom command
+[550/633] Linking target lib/librte_node.so.26.0
+[551/633] Compiling C object drivers/libtmp_rte_bus_vdev.a.p/bus_vdev_vdev_params.c.o
+[552/633] Generating drivers/rte_mempool_ring_map with a custom command
+[553/633] Compiling C object drivers/libtmp_rte_bus_pci.a.p/bus_pci_linux_pci_vfio.c.o
+[554/633] Linking static target drivers/libtmp_rte_bus_pci.a
+[555/633] Compiling C object drivers/libtmp_rte_bus_vdev.a.p/bus_vdev_vdev.c.o
+[556/633] Linking static target drivers/libtmp_rte_bus_vdev.a
+[557/633] Generating drivers/rte_bus_vdev.pmd.c with a custom command
+[558/633] Generating drivers/rte_bus_pci.pmd.c with a custom command
+[559/633] Compiling C object drivers/librte_bus_vdev.so.26.0.p/meson-generated_.._rte_bus_vdev.pmd.c.o
+[560/633] Compiling C object drivers/librte_bus_pci.a.p/meson-generated_.._rte_bus_pci.pmd.c.o
+[561/633] Compiling C object drivers/librte_bus_pci.so.26.0.p/meson-generated_.._rte_bus_pci.pmd.c.o
+[562/633] Linking static target drivers/librte_bus_pci.a
+[563/633] Compiling C object drivers/libtmp_rte_mempool_ring.a.p/mempool_ring_rte_mempool_ring.c.o
+[564/633] Compiling C object drivers/librte_bus_vdev.a.p/meson-generated_.._rte_bus_vdev.pmd.c.o
+[565/633] Linking target drivers/librte_bus_pci.so.26.0
+[566/633] Linking target drivers/librte_bus_vdev.so.26.0
+[567/633] Compiling C object drivers/libtmp_rte_net_ena.a.p/net_ena_ena_rss.c.o
+[568/633] Linking static target drivers/librte_bus_vdev.a
+[569/633] Linking static target drivers/libtmp_rte_mempool_ring.a
+[570/633] Generating drivers/rte_mempool_ring.pmd.c with a custom command
+[571/633] Compiling C object drivers/librte_mempool_ring.a.p/meson-generated_.._rte_mempool_ring.pmd.c.o
+[572/633] Generating symbol file drivers/librte_bus_pci.so.26.0.p/librte_bus_pci.so.26.0.symbols
+[573/633] Linking static target drivers/librte_mempool_ring.a
+[574/633] Generating symbol file drivers/librte_bus_vdev.so.26.0.p/librte_bus_vdev.so.26.0.symbols
+[575/633] Compiling C object drivers/librte_mempool_ring.so.26.0.p/meson-generated_.._rte_mempool_ring.pmd.c.o
+[576/633] Generating drivers/rte_net_ena_map with a custom command
+[577/633] Linking target drivers/librte_mempool_ring.so.26.0
+[578/633] Generating drivers/rte_net_null_map with a custom command
+[579/633] Compiling C object drivers/libtmp_rte_net_ena.a.p/net_ena_ena_ethdev.c.o
+[580/633] Generating drivers/rte_net_ring_map with a custom command
+[581/633] Compiling C object drivers/libtmp_rte_net_ena.a.p/net_ena_base_ena_com.c.o
+[582/633] Compiling C object drivers/libtmp_rte_net_ena.a.p/net_ena_base_ena_eth_com.c.o
+[583/633] Linking static target drivers/libtmp_rte_net_ena.a
+[584/633] Compiling C object drivers/libtmp_rte_net_null.a.p/net_null_rte_eth_null.c.o
+[585/633] Linking static target drivers/libtmp_rte_net_null.a
+[586/633] Compiling C object app/dpdk-testpmd.p/test-pmd_5tswap.c.o
+[587/633] Generating drivers/rte_net_ena.pmd.c with a custom command
+[588/633] Generating drivers/rte_net_null.pmd.c with a custom command
+[589/633] Compiling C object drivers/libtmp_rte_net_ring.a.p/net_ring_rte_eth_ring.c.o
+[590/633] Compiling C object drivers/librte_net_ena.so.26.0.p/meson-generated_.._rte_net_ena.pmd.c.o
+[591/633] Compiling C object drivers/librte_net_ena.a.p/meson-generated_.._rte_net_ena.pmd.c.o
+[592/633] Compiling C object drivers/librte_net_null.so.26.0.p/meson-generated_.._rte_net_null.pmd.c.o
+[593/633] Linking target drivers/librte_net_ena.so.26.0
+[594/633] Linking static target drivers/librte_net_ena.a
+[595/633] Compiling C object drivers/librte_net_null.a.p/meson-generated_.._rte_net_null.pmd.c.o
+[596/633] Linking static target drivers/libtmp_rte_net_ring.a
+[597/633] Linking target drivers/librte_net_null.so.26.0
+[598/633] Linking static target drivers/librte_net_null.a
+[599/633] Compiling C object app/dpdk-testpmd.p/test-pmd_cmdline_cman.c.o
+[600/633] Compiling C object app/dpdk-proc-info.p/proc-info_main.c.o
+[601/633] Generating drivers/rte_net_ring.pmd.c with a custom command
+[602/633] Compiling C object drivers/librte_net_ring.so.26.0.p/meson-generated_.._rte_net_ring.pmd.c.o
+[603/633] Compiling C object drivers/librte_net_ring.a.p/meson-generated_.._rte_net_ring.pmd.c.o
+[604/633] Compiling C object lib/librte_pipeline.a.p/pipeline_rte_table_action.c.o
+[605/633] Linking static target lib/librte_pipeline.a
+[606/633] Linking static target drivers/librte_net_ring.a
+[607/633] Linking target lib/librte_pipeline.so.26.0
+[608/633] Linking target drivers/librte_net_ring.so.26.0
+[609/633] Linking target app/dpdk-proc-info
+[610/633] Compiling C object app/dpdk-testpmd.p/test-pmd_cmdline_mtr.c.o
+[611/633] Compiling C object app/dpdk-testpmd.p/test-pmd_cmdline_tm.c.o
+[612/633] Compiling C object app/dpdk-testpmd.p/test-pmd_cmd_flex_item.c.o
+[613/633] Compiling C object app/dpdk-testpmd.p/test-pmd_flowgen.c.o
+[614/633] Compiling C object app/dpdk-testpmd.p/test-pmd_icmpecho.c.o
+[615/633] Compiling C object app/dpdk-testpmd.p/test-pmd_hairpin.c.o
+[616/633] Compiling C object app/dpdk-testpmd.p/test-pmd_cmdline.c.o
+[617/633] Compiling C object app/dpdk-testpmd.p/test-pmd_csumonly.c.o
+[618/633] Compiling C object app/dpdk-testpmd.p/test-pmd_iofwd.c.o
+[619/633] Compiling C object app/dpdk-testpmd.p/test-pmd_ieee1588fwd.c.o
+[620/633] Compiling C object app/dpdk-testpmd.p/test-pmd_macswap.c.o
+[621/633] Compiling C object app/dpdk-testpmd.p/test-pmd_rxonly.c.o
+[622/633] Compiling C object app/dpdk-testpmd.p/test-pmd_parameters.c.o
+[623/633] Compiling C object app/dpdk-testpmd.p/test-pmd_macfwd.c.o
+[624/633] Compiling C object app/dpdk-testpmd.p/test-pmd_cmdline_flow.c.o
+[625/633] Compiling C object app/dpdk-testpmd.p/test-pmd_shared_rxq_fwd.c.o
+[626/633] Compiling C object app/dpdk-testpmd.p/test-pmd_recycle_mbufs.c.o
+[627/633] Compiling C object app/dpdk-testpmd.p/test-pmd_config.c.o
+[628/633] Compiling C object app/dpdk-testpmd.p/test-pmd_util.c.o
+[629/633] Compiling C object app/dpdk-testpmd.p/test-pmd_bpf_cmd.c.o
+[630/633] Compiling C object app/dpdk-testpmd.p/test-pmd_noisy_vnf.c.o
+[631/633] Compiling C object app/dpdk-testpmd.p/test-pmd_txonly.c.o
+[632/633] Compiling C object app/dpdk-testpmd.p/test-pmd_testpmd.c.o
+[633/633] Linking target app/dpdk-testpmd
+ninja: Entering directory `/home/ec2-user/.cache/bq-build/dpdk-stable-25.11.3/build'
+ninja: no work to do.
+[1;32m  ✔[0m DPDK 25.11.3 安装完成
+[1;34m[10:26:17][0m 完成：dpdk

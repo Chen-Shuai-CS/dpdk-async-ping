@@ -1,0 +1,14 @@
+[package]
+name = "rt"
+description = "单核、kernel-bypass 的 async runtime：自研 executor、Waker、TSC timer、DPDK poll-mode reactor。不依赖任何现成 runtime。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dpdk = { path = "../dpdk" }
+timerq = { path = "../timerq" }
+
+[features]
+# 诊断：把段②拆成子段（见 src/probe.rs）。默认关闭。
+probe = []

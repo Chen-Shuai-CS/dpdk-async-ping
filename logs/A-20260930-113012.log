@@ -1,0 +1,25 @@
+EAL: No free 1048576 kB hugepages reported on node 0
+ENA_DRIVER: ena_get_metrics_entries(): 0x6 customer metrics are supported
+ENA_DRIVER: ena_rx_queue_release(): Rx queue 0:0 released
+ENA_DRIVER: ena_tx_queue_release(): Tx queue 0:0 released
+
+==================== A · async-ping（自研 rt runtime） ====================
+sessions 64  delay 500 µs  duration 30 s (实际 30.00 s)  payload 64 B  timeout 10000 µs  TSC 2.600 GHz
+sent 2667560  received 2667560  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  other 0  arp-replied 1  tx-full 0  no-mbuf 0
+对账：sent − received − timeouts − in-flight = 0（应为 0）；丢包 = timeouts = 0（其中 0 个迟到收到）
+
+metric (ns)                       count      min     mean      p50      p90      p99    p99.9   p99.99        max
+in-process ①+②  [排名指标]          2667560       60      194      180      250      350      450      601      15840
+seg① send  T1−T0                2667560       40       54       50       60       70      170      270       5040
+seg② recv  T3−T2                2667560       20      141      130      190      290      390      521      15790
+end-to-end T3−T0                2667560    52160   219600   240246   244972   249698   252849   309563     366920
+seg③ wake→next T0               2667560       20      129       60      320      721     1110     1541      20090
+sleep error                     2667560        0       34       10      100      270      803     2800      64920
+  (诊断) seg① 背靠背 <2µs            2152537       40       54       50       60       70      170      280       5040
+  (诊断) seg① 间隔 ≥2µs              515023       40       54       50       60       70      160      250       3790
+
+rx_burst 包数分布（非空 burst）：1:78.06%  2:18.85%  3:2.87%  4:0.22%  5:0.00%  6:0.00%  7:0.00%  8:0.00%  10:0.00%  11:0.00%  12:0.00%  14:0.00%
+port: ipackets 2667561  opackets 2667667  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
+AWS allowance（本次运行增量）：bw_in_allowance_exceeded=0  bw_out_allowance_exceeded=0  pps_allowance_exceeded=0  conntrack_allowance_exceeded=0  linklocal_allowance_exceeded=0
+mbuf：pool 8191，初值 avail 8191（端口启动后 7168），关停后 avail 8191 → 泄漏 0 ✔
+退出原因：到达 --duration-sec，停止发送并等在途请求收尾

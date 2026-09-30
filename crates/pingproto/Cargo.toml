@@ -1,0 +1,6 @@
+[package]
+name = "pingproto"
+description = "ICMP echo 帧模板、增量校验和、reply 解析、ARP 应答。纯 Rust，无 DPDK 依赖，可离线单测。A 和 B 共用。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true

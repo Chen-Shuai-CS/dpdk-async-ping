@@ -1,0 +1,6 @@
+[package]
+name = "timerq"
+description = "按 TSC deadline 排序的最小堆。rt 的 async timer 和 raw-ping 的 delay 用的是同一个数据结构。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true

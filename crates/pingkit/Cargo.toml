@@ -1,0 +1,15 @@
+[package]
+name = "pingkit"
+description = "A（async-ping）和 B（raw-ping）共用的一切：参数、数据面初始化/关停与泄漏核对、发送函数（段①）、TimerHeap、直方图、统计报表、进度上报线程。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dpdk = { path = "../dpdk" }
+pingproto = { path = "../pingproto" }
+timerq = { path = "../timerq" }
+clap = { version = "4", features = ["derive", "env"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

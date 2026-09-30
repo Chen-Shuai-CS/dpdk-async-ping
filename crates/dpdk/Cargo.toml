@@ -1,0 +1,9 @@
+[package]
+name = "dpdk"
+description = "本项目用到的那一小部分 DPDK 的安全封装：EAL、Mempool、Mbuf(RAII)、Port、TSC。A 和 B 共用。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dpdk-sys = { path = "../dpdk-sys" }

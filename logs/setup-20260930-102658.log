@@ -1,0 +1,5 @@
+[1;34m[10:26:58][0m hugepages：运行时预留 1024 × 2 MiB（重启后由启动参数接管）
+[1;32m  ✔[0m HugePages_Total=1024，HugePages_Free=1024
+[1;34m[10:26:58][0m irq：irqbalance 避开核 3，现有中断立即迁走
+[1;32m  ✔[0m irqbalance 已排除核 3；64 个中断的亲和性设为 0-2
+[1;34m[10:26:59][0m 完成：hugepages irq
