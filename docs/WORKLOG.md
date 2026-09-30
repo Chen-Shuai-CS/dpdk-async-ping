@@ -132,7 +132,7 @@ nosoftlockup nmi_watchdog=0 tsc=reliable
 | `dpdk-sys` | bindgen 生成的裸绑定 + 一个很薄的 C shim（包装 `rte_eth_rx_burst` 等 static inline 函数） | ✔ | ✔ |
 | `dpdk` | 安全封装：Eal、Mempool、Mbuf（RAII，Drop 时归还）、Port（rx/tx burst）、TSC | ✔ | ✔ |
 | `pingproto` | 帧模板、RFC 1624 增量校验和、reply 解析、ARP 应答；纯 Rust，可以离线单测 | ✔ | ✔ |
-| `bench` | 命令行参数、TimerHeap、直方图、报表、housekeeping（ENA watchdog 等） | ✔ | ✔ |
+| `bench`（实际命名为 **`pingkit`**；TimerHeap 后来单独拆成 **`timerq`**，见 12 条） | 命令行参数、TimerHeap、直方图、报表、housekeeping（ENA watchdog 等） | ✔ | ✔ |
 | `rt` | **runtime 本体**：executor、Waker、timer、poll-mode reactor、按 id 分发的信箱 | ✔ | ✘ |
 | `async-ping` / `raw-ping` | 两个可执行程序 | A | B |
 
@@ -142,7 +142,7 @@ nosoftlockup nmi_watchdog=0 tsc=reliable
 3. **Timer**：用二叉堆（按 TSC deadline 排序）。64 个 session 规模很小，堆的插入是 O(log n) 且精确；时间轮适合海量 timer，这里没有必要。**B 用同一个 TimerHeap 数据结构**（只是不经过 waker），满足 SPEC"B 也要有 timer 路径"的要求。
 4. **超时**：不给每个包注册超时 timer（那会带来每包的堆操作和取消成本），而是由 housekeeping 定期扫描 64 个在途 session 的 deadline。A 和 B 用同样的扫描方式。
 5. **Waker**：data 里只放 task 编号，wake = 把编号推进固定容量的环形就绪队列（带"已入队"去重位）。clone / drop 都是空操作，没有引用计数。Waker 被规定为 Send + Sync 的问题：wake 时检查当前线程是否是 runtime 所在线程，不是就 abort，保证不会发生数据竞争。
-6. **打点**：统一用 `rdtsc`（不加 lfence）。A 和 B 用同一个函数、在语义相同的位置打点。
+6. **打点**：统一用 `rdtsc`（不加 lfence）。A 和 B 用同一个函数、在语义相同的位置打点。**（后来在 13 条改为 `rdtscp`：rdtsc 的乱序执行会系统性地偏向 B。）**
    - 段③的定义拆成两段：**sleep 误差** = timer 发现到期的时刻 − deadline；**段③** = 发现到期 → 下一个 T0。
 7. **统计**：lcore 上用自己实现的对数-线性直方图记录（每次几条指令），在 T3 之后才记录，不进入被测段。进度输出交给核 1 上的上报线程，通过 Relaxed 原子计数读取，lcore 自己不 println。
 8. **ENA watchdog**：启动时调用 `rte_timer_subsystem_init()`，housekeeping 里周期性调用 `rte_timer_manage()`；注册 reset 事件回调，出事时干净退出并报告。
@@ -230,6 +230,8 @@ nosoftlockup nmi_watchdog=0 tsc=reliable
 
 **现象**：A 的段② p50 比 B 多 120 ns。但 put → wake → 入队 → 出队 → poll 应该只有几十条指令。
 
+**先试了 perf，没用上**：`perf record -C 3` 采样 5 秒，样本 55% 落在 `Runtime::run`、27% 落在 `eth_ena_recv_pkts`，几乎全是空转的轮询。真正处理包的路径只占约 1% 的 CPU，而且被内联进了主循环，采样看不出每个包的开销分布。→ **结论：busy-poll 程序不适合用采样型 profiler 定位单包开销，改用精细打点。**
+
 **第一步：把段②拆开**（新增 `probe` 编译特性，默认关闭；executor 在 poll 前打点，driver 在 put 返回后打点）
 | 子段（rdtsc） | p50 | p99 |
 |---|---|---|
@@ -260,6 +262,9 @@ nosoftlockup nmi_watchdog=0 tsc=reliable
 ## 2026-09-30 · 14 A / B 交替多轮对比 + 段① 写合并效应
 
 **方法**：新增 `scripts/ab.sh`（按 ABBA 顺序交替跑 N 对，抵消对端状态随时间漂移的影响）和 `scripts/summarize.py`（逐轮列出分位数，取各轮中位数，算 A − B）。
+- 小坑：`run.sh` 默认会加 `--json`，`ab.sh` 又传了一次，clap 报"参数重复"→ 改为调用者给了 `--json` 时 `run.sh` 就不再追加。
+
+**段①分档的实现**：共用的 `Sender` 记住上一次发送的 T1，每次发送算出 `since_prev_tx = T0 − 上一个 T1` 放进 `Stamp`；`Stats` 按 <100 ns / 100–250 / 250–500 / 500 ns–2 µs / ≥2 µs 五档分别记录段①。每次发送只多一次 `Cell` 读写（约 1 ns），A、B 相同。一开始只分"<2 µs / ≥2 µs"两档，发现两边都有约 80% 落在 <2 µs，区分不出来，才细化成五档。
 
 **3 对 × 30 秒（rdtscp）**：所有轮次 0 丢包、0 泄漏。
 | 指标 | A 中位数 | B 中位数 | A − B |
@@ -332,7 +337,7 @@ nosoftlockup nmi_watchdog=0 tsc=reliable
 
 **对账细节**
 - A 的端口收包数 53,935,018 = reply 53,934,999 + unexpected 1 + other 8 + ARP 10，**逐包对得上**。
-- unexpected 1：一个 echo reply 的 seq 对不上任何在途或已超时的请求（5400 万分之一），最可能是网络层的重复包；它不影响 sent / received / timeouts 的对账。
+- unexpected 1：一个 echo reply 的 seq 对不上任何在途或已超时的请求（5400 万分之一），当时推测是网络层的重复包；它不影响 sent / received / timeouts 的对账。**（17 条修正了这个判断：一次 10 秒短测里也出现过 1 个，与运行时长无关，不像随机重复包；根因仍未确定。）**
 - 10 分钟里对端各发来 10 次 ARP 请求，都已应答（与对端的 ARP 缓存过期周期一致）→ 这再次说明必须自己实现 ARP 应答。
 
 **小插曲**：后台任务报"失败"，实际是我在命令末尾用了 `tail -3 文件1 文件2`（GNU tail 同时处理多个文件时不接受 `-3` 这种写法），两个长测本身都是退出码 0。
@@ -374,5 +379,70 @@ nosoftlockup nmi_watchdog=0 tsc=reliable
 - `crates/rt/tests/offline.rs`，7 个测试：sleep 按 deadline 顺序且不早到；Mailbox 顺序交接 100 个值；poll 期间自唤醒 1000 次不丢；**过期 waker 不会唤醒复用同一槽位的新任务**；drop runtime 时释放未完成 task 持有的资源（对应 mbuf 归还）；取消的 sleep 不误触发；死锁检测。
 - **变异测试**：把 executor 的代数检查临时改成永远为真，"过期 waker"测试立即失败（task 被 poll 3 次而非 2 次）→ 证明这个测试真的能抓到这类 bug；改回后全部通过。
 - 全仓库现有 15 个测试（rt 7、pingproto 5、pingkit 2、timerq 1），都不需要网卡。
+- `cargo clippy --all-targets`（连测试代码一起检查）又报了 1 条（直方图测试里手写的区间判断），修掉后全仓库 **clippy 零警告**。
 
 **为什么值得做**：之前 runtime 的正确性只靠真网卡上的端到端运行来证明。答辩时如果被问"边界情况怎么保证"，现在可以指着这些测试说明，包括用变异测试证明测试本身有效。
+
+## 2026-09-30 · 19 复盘素材汇总（答辩前用）
+
+### 时间线（服务器时间 UTC）
+| 时间 | 阶段 | 见 |
+|---|---|---|
+| 06:06–06:30 | 读题、摸底服务器 | 01 |
+| 07:05–07:30 | 知识准备文档 + 教学版 runtime | 02 |
+| 10:23–10:31 | 工具链、DPDK、igb_uio、大页、中断、写启动参数 | 04–07 |
+| 10:31–10:36 | 本人重启 → 验证核隔离 | 08 |
+| 10:37–10:58 | 架构设计；dpdk-sys / dpdk / pingproto / pingkit | 09–10 |
+| 10:59–11:05 | B 首跑；端到端随速率变化的实验 | 11 |
+| 11:05–11:15 | runtime + A；A 首跑 | 12 |
+| 11:15–11:27 | perf（没用上）→ probe 拆段② → rdtscp 发现 | 13 |
+| 11:28–11:34 | ABBA × 30 秒；段①分档；写合并效应 | 14 |
+| 11:33–11:55 | 60 秒路径；超时路径；A / B 各 10 分钟 | 15–16 |
+| 11:54 | 首次提交并推送 GitHub | |
+| 11:55–12:08 | C 两种口径；同速率 A / B；ABBA × 60 秒；单路低速率对比 | 17 |
+| 12:08–12:16 | 报告；clippy；runtime 单测与变异测试 | 17–18 |
+
+### 关键决策：选了什么、备选是什么、为什么
+| 决策 | 选择 | 备选 | 理由 |
+|---|---|---|---|
+| DPDK 版本 | 25.11.3（LTS） | 24.11 LTS、26.07 | LTS 有长期修复；ENA 驱动足够新 |
+| 用户态驱动 | igb_uio + `wc_activate=1` | vfio-pci noiommu、给 vfio 打 WC 补丁、uio_pci_generic | 无 IOMMU；主线 vfio 不支持写合并；ENA 的 LLQ 依赖写合并 |
+| 大页 | 2 MB × 1024，启动时预留 | 1 GB 大页 | 工作集约 20 MB，2 MB 页的 TLB 覆盖已足够；也能运行时调整 |
+| 链接方式 | DPDK 共享库 | 静态链接 + whole-archive | 静态链接时 PMD 会被链接器丢弃；共享库由 EAL 自动加载 |
+| static inline 函数 | 手写很薄的 C shim | bindgen 的 `wrap_static_fns` | 显式、只有几个函数、答辩时容易讲清 |
+| 发送 | 每包一次 `tx_burst(1)`，分配 mbuf + 拷贝模板 | 多个 session 攒批发送；每 session 一个模板 mbuf + refcnt | T1 语义清晰；简单且显然正确 |
+| 收包顺序 | 每分发一个包就立刻跑就绪队列 | 整批分发完再统一 poll | 与 B 对齐，不人为放大 A − B |
+| timer | 二叉堆（`timerq`，A / B 共用） | 时间轮 | 只有约 64 个 timer；精确、简单 |
+| 超时 | 每 100 µs 扫描一次在途 session | 每个包注册一个超时 timer | 避免每包的堆操作和取消成本；A / B 相同 |
+| Waker | data 里编码 rt_id / 代数 / 任务号，无引用计数 | Arc + 原子计数；Rc（不 sound） | 零原子操作；跨线程调用直接 abort，保证内存安全 |
+| 任务存储 | 固定容量槽 + `Box<dyn Future>` | 泛型同构存储（省掉 vtable） | 保持通用；实测接收侧税已只有约 10 ns，没必要 |
+| 打点 | `rdtscp` | `rdtsc`、`lfence; rdtsc` | rdtsc 的乱序执行系统性地偏向 B（13 条） |
+| 统计 | 自研对数-线性直方图，T3 之后才记录 | 存下全部原始样本 | 10 分钟约 6800 万样本 × 4 个指标 ≈ 1 GB；直方图内存固定 |
+| B 的写合并效应 | 如实报告 + 拆解 | 人为拉开 B 的发送间隔；攒批发送 | 两种"修正"都会让 A − B 失真（14 条） |
+| C 的测法 | 64 × `ping -i 0.001`，`-U` 口径；另补单路低速率 | 单个 ping；`-i 0.0005` | 速率、并发、口径对齐；iputils 的间隔只到整数毫秒 |
+| 空闲态参数 | 不启用 `idle=poll` | 启用 | 会改变核 0–2 上 C 的测量条件 |
+
+### 关键发现（答辩重点）
+1. **测量工具本身会收税，而且对两边不一样**：用 rdtsc 打点，A − B 的段② 会被报成 +120 ns；改用 rdtscp 后，真实的接收侧税约 +10 ns（13 条）。
+2. **ENA 写合并的 flush 约 250 ns**，连续发送时会被计入 B 的段①，所以 A 的 p99 看起来更好；发送间隔相同时两边完全一样（14 条）。
+3. **对端的自适应中断合并**让 RTT 随速率非单调变化 → 这说明排名只看进程内耗时是合理的，也说明 C 必须在同速率下测（11、17 条）。
+4. **kernel bypass 换来的是确定性**：单路 p99 68 µs 对 281 µs；64 路 p99.99 272 µs 对 4.07 ms；中位数差别不大（17 条）。
+5. AWS 会把对端的 ARP 请求转发给我们的网卡（06、16 条）；ENA 的设备计数器不会清零（06、11 条）。
+
+### 尚未解决 / 可以改进
+- unexpected reply 的根因未查明，已加明细记录，下次出现时可以分析。
+- 段②还能再压：减少 RefCell 借用检查、用泛型存储任务以省掉 vtable、减少线程局部变量访问。接收侧税已约 10 ns，接近测量噪声，优先级低。
+- 段①里"分配 mbuf + 拷贝 106 B"可以换成"每个 session 一个模板 mbuf + refcnt"：A、B 都会受益，但不影响 A − B。
+- 跨线程 wake → abort 这条路径没有单测（它会杀掉测试进程，需要用子进程来测）。
+- ENA reset 的处理路径（检测 + 干净退出）没有真正被触发过。
+- `setup.sh` 只在这台机器上分阶段验证过，没有在一台全新的机器上从头完整跑过。
+- C 是开环（固定每 1 ms 发一个），A 是闭环（收到 reply 再 delay 后发下一个）。在 RTT 远小于 1 ms 时两者近似，但不完全等价。
+
+### 提交记录
+| commit | 时间 | 内容 |
+|---|---|---|
+| 3293f71 | 11:54 | 全部代码、脚本、文档骨架 |
+| 67cd727 | 12:12 | 10 分钟长测、C、ABBA、报告、clippy |
+| e25c334 | 12:15 | `run_offline` + 7 个 runtime 单测 |
+| e7adbad | 12:15 | clippy 修正（直方图测试） |
+| （本次） | | 工作记录补全（本条及 09 / 13 / 14 / 16 / 18 条的更正与补充） |
