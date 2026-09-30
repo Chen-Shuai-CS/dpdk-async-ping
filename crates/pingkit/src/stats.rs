@@ -55,7 +55,11 @@ pub struct Stats {
     /// 非空 rx_burst 的包数分布（下标 = 一次收到几个包）
     pub burst_sizes: [u64; RX_BURST_MAX + 1],
     pub c: Counters,
+    /// 异常包明细（unexpected 等），最多记录 [`ANOMALY_LOG_MAX`] 条，冷路径
+    pub anomalies: Vec<String>,
 }
+
+pub const ANOMALY_LOG_MAX: usize = 16;
 
 impl Default for Stats {
     fn default() -> Self {
@@ -70,6 +74,7 @@ impl Default for Stats {
             gap_edges: [260, 650, 1_300, 5_200], // 100/250/500/2000 ns @ 2.6 GHz；with_hz 按实际频率重设
             burst_sizes: [0; RX_BURST_MAX + 1],
             c: Counters::default(),
+            anomalies: Vec::new(),
         }
     }
 }
@@ -98,6 +103,14 @@ impl Stats {
     pub fn on_wake(&mut self, deadline: u64, detected: u64, t0_next: u64) {
         self.sleep_err.record(detected.saturating_sub(deadline));
         self.seg3.record(t0_next.saturating_sub(detected));
+    }
+
+    /// 记录一个异常包（冷路径）：计数由调用方负责，这里只保存前 16 条明细用于事后解释。
+    #[cold]
+    pub fn note_anomaly(&mut self, what: std::fmt::Arguments) {
+        if self.anomalies.len() < ANOMALY_LOG_MAX {
+            self.anomalies.push(format!("[tsc {}] {}", dpdk::tsc::rdtsc(), what));
+        }
     }
 
     #[inline]
@@ -177,6 +190,8 @@ pub struct Report {
     pub port: PortSummary,
     pub mbuf: LeakReport,
     pub exit_reason: String,
+    /// 异常包明细（最多 16 条）
+    pub anomalies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -249,6 +264,12 @@ impl Report {
             if leak == 0 { "✔" } else { "✘" }
         );
         println!("退出原因：{}", self.exit_reason);
+        if !self.anomalies.is_empty() {
+            println!("异常包明细（最多 16 条）：");
+            for a in &self.anomalies {
+                println!("  {a}");
+            }
+        }
     }
 }
 
@@ -302,6 +323,7 @@ impl Report {
             port,
             mbuf,
             exit_reason,
+            anomalies: stats.anomalies.clone(),
         }
     }
 

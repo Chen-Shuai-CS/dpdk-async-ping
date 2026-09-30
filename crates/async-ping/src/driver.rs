@@ -137,7 +137,9 @@ impl rt::Driver for IcmpDriver<'_> {
         match classify(m.data(), sh.my_ip) {
             Rx::EchoReply { id, seq, .. } => {
                 let Some(f) = sh.flows.get(id as usize) else {
-                    sh.stats.borrow_mut().c.unexpected += 1;
+                    let mut st = sh.stats.borrow_mut();
+                    st.c.unexpected += 1;
+                    st.note_anomaly(format_args!("unexpected：id={id} 超出 session 范围，seq={seq}"));
                     return;
                 };
                 if f.expect.get() == Some(seq) {
@@ -150,7 +152,10 @@ impl rt::Driver for IcmpDriver<'_> {
                 } else if f.timed_out_before(seq) {
                     sh.stats.borrow_mut().c.late += 1;
                 } else {
-                    sh.stats.borrow_mut().c.unexpected += 1;
+                    let mut st = sh.stats.borrow_mut();
+                    st.c.unexpected += 1;
+                    let expect = f.expect.get();
+                    st.note_anomaly(format_args!("unexpected：id={id} seq={seq}，该 session 正在等 {expect:?}"));
                 }
             }
             Rx::ArpRequest => {

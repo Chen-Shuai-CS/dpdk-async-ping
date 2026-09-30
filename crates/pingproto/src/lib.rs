@@ -41,12 +41,9 @@ pub struct Endpoints {
 /// 16 位反码和（未取反、未折叠到 16 位也可以继续累加）。按网络字节序把相邻两字节当作一个字。
 #[inline]
 pub fn sum16(data: &[u8]) -> u32 {
-    let mut s: u32 = 0;
-    let mut chunks = data.chunks_exact(2);
-    for c in &mut chunks {
-        s += u16::from_be_bytes([c[0], c[1]]) as u32;
-    }
-    if let [last] = chunks.remainder() {
+    let (words, rest) = data.as_chunks::<2>();
+    let mut s: u32 = words.iter().map(|w| u16::from_be_bytes(*w) as u32).sum();
+    if let [last] = rest {
         s += (*last as u32) << 8;
     }
     s

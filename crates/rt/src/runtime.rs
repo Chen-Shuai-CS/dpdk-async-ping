@@ -158,7 +158,7 @@ impl Runtime {
             if n > 0 {
                 let t2 = rdtsc(); // T2：rx_burst 返回
                 driver.on_burst(n);
-                while let Some(m) = burst.next() {
+                for m in burst.by_ref() {
                     driver.on_packet(m, t2, port);
                     core.exec.run_ready();
                 }

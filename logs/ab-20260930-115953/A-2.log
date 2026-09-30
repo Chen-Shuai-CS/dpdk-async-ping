@@ -1,0 +1,30 @@
+[1;34m[12:03:05][0m 运行 A（async-ping）--delay-us 500 --duration-sec 60 --progress-sec 0 --json /home/ec2-user/dpdk-async-ping/logs/ab-20260930-115953/A-2.json  → /home/ec2-user/dpdk-async-ping/logs/A-20260930-120305.log
+EAL: No free 1048576 kB hugepages reported on node 0
+ENA_DRIVER: ena_get_metrics_entries(): 0x6 customer metrics are supported
+ENA_DRIVER: ena_rx_queue_release(): Rx queue 0:0 released
+ENA_DRIVER: ena_tx_queue_release(): Tx queue 0:0 released
+
+==================== A · async-ping（自研 rt runtime） ====================
+sessions 64  delay 500 µs  duration 60 s (实际 60.00 s)  payload 64 B  timeout 10000 µs  TSC 2.600 GHz
+sent 5250839  received 5250839  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  other 0  arp-replied 1  tx-full 0  no-mbuf 0
+对账：sent − received − timeouts − in-flight = 0（应为 0）；丢包 = timeouts = 0（其中 0 个迟到收到）
+
+metric (ns)                       count      min     mean      p50      p90      p99    p99.9   p99.99        max
+in-process ①+②  [排名指标]          5250839       60      193      180      250      350      450      589      35580
+seg① send  T1−T0                5250839       40       54       50       60       70      170      280      20230
+seg② recv  T3−T2                5250839       20      139      120      190      290      390      521      35520
+end-to-end T3−T0                5250839    55950   231141   244972   249698   252849   257575   273329     386870
+seg③ wake→next T0               5250839       30      138       70      320      721     1123     1529      11220
+sleep error                     5250839        0       35       10      100      290      790     2615     108270
+  (诊断) seg① 距上次发送<100ns               0        0        0        0        0        0        0        0          0
+  (诊断) seg① 100–250ns                13       50       62       60       70       70       70       70         70
+  (诊断) seg① 250–500ns           1476762       40       55       50       60      150      190      310       3760
+  (诊断) seg① 500ns–2µs           2787552       40       53       50       60       70      160      230       4020
+  (诊断) seg① ≥2µs                 986512       40       54       50       60       70      160      250      20230
+
+rx_burst 包数分布（非空 burst）：1:76.89%  2:18.87%  3:3.68%  4:0.56%  5:0.00%  6:0.00%  7:0.00%  8:0.00%  9:0.00%  10:0.00%  11:0.00%  12:0.00%  13:0.00%  16:0.00%  25:0.00%
+port: ipackets 5250840  opackets 5250946  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
+AWS allowance（本次运行增量）：bw_in_allowance_exceeded=0  bw_out_allowance_exceeded=0  pps_allowance_exceeded=0  conntrack_allowance_exceeded=0  linklocal_allowance_exceeded=0
+mbuf：pool 8191，初值 avail 8191（端口启动后 7168），关停后 avail 8191 → 泄漏 0 ✔
+退出原因：到达 --duration-sec，停止发送并等在途请求收尾
+[1;34m[12:04:05][0m 退出码 0；报告：（由调用者指定）

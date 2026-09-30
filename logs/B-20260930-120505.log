@@ -1,0 +1,28 @@
+EAL: No free 1048576 kB hugepages reported on node 0
+ENA_DRIVER: ena_get_metrics_entries(): 0x6 customer metrics are supported
+ENA_DRIVER: ena_rx_queue_release(): Rx queue 0:0 released
+ENA_DRIVER: ena_tx_queue_release(): Tx queue 0:0 released
+
+==================== B · raw-ping（手写 busy-poll，无 runtime） ====================
+sessions 64  delay 500 µs  duration 60 s (实际 60.00 s)  payload 64 B  timeout 10000 µs  TSC 2.600 GHz
+sent 5481275  received 5481275  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  other 0  arp-replied 1  tx-full 0  no-mbuf 0
+对账：sent − received − timeouts − in-flight = 0（应为 0）；丢包 = timeouts = 0（其中 0 个迟到收到）
+
+metric (ns)                       count      min     mean      p50      p90      p99    p99.9   p99.99        max
+in-process ①+②  [排名指标]          5481275       50      233      180      420      521      610      749      15750
+seg① send  T1−T0                5481275       40      107       50      290      320      401      450       5170
+seg② recv  T3−T2                5481275       10      126      110      170      270      360      469      15700
+end-to-end T3−T0                5481275    55170   200457   164233   249698   252849   257575   289083     384490
+seg③ wake→next T0               5481275       20       70       50       80      380      740     1092      12640
+sleep error                     5481275        0       40       20      120      481      827     2615      41930
+  (诊断) seg① 距上次发送<100ns          989473       60      298      300      320      340      441      589       5170
+  (诊断) seg① 100–250ns            242904       60      267      270      280      340      401      530       3540
+  (诊断) seg① 250–500ns            261731       40       54       50       60       70      170      250       3830
+  (诊断) seg① 500ns–2µs           2956508       40       53       50       60       70      160      240       4230
+  (诊断) seg① ≥2µs                1030659       40       54       50       60       70      160      220       3560
+
+rx_burst 包数分布（非空 burst）：1:77.27%  2:18.44%  3:3.79%  4:0.49%  5:0.00%  6:0.00%  7:0.00%  8:0.00%  10:0.00%  11:0.00%  12:0.00%  13:0.00%  14:0.00%  15:0.00%
+port: ipackets 5481276  opackets 5481382  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
+AWS allowance（本次运行增量）：bw_in_allowance_exceeded=0  bw_out_allowance_exceeded=0  pps_allowance_exceeded=0  conntrack_allowance_exceeded=0  linklocal_allowance_exceeded=0
+mbuf：pool 8191，初值 avail 8191（端口启动后 7168），关停后 avail 8191 → 泄漏 0 ✔
+退出原因：到达 --duration-sec，停止发送并等在途请求收尾

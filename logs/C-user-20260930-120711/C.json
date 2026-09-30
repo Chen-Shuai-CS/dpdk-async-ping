@@ -1,0 +1,23 @@
+{
+  "client": "C · system ping",
+  "mode": "user",
+  "flows": 1,
+  "interval_ms": 1.0,
+  "duration_sec": 30.0,
+  "sent": 30000,
+  "received": 30000,
+  "metrics": [
+    {
+      "name": "end-to-end（ping -U 用户态↔用户态）",
+      "count": 30000,
+      "min": 64000,
+      "mean": 105222.16666666667,
+      "p50": 74000,
+      "p90": 275000,
+      "p99": 281000,
+      "p99_9": 290000,
+      "p99_99": 439000,
+      "max": 10800000
+    }
+  ]
+}

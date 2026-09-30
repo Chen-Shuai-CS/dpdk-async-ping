@@ -107,6 +107,7 @@ impl Raw {
     fn on_reply(&mut self, m: Mbuf, id: u16, seq: u16, t2: u64) {
         let Some(s) = self.sessions.get_mut(id as usize) else {
             self.stats.c.unexpected += 1;
+            self.stats.note_anomaly(format_args!("unexpected：id={id} 超出 session 范围，seq={seq}"));
             return;
         };
         match s.state {
@@ -123,6 +124,13 @@ impl Raw {
                     self.stats.c.late += 1;
                 } else {
                     self.stats.c.unexpected += 1;
+                    let state = match s.state {
+                        State::Waiting { seq: w, .. } => format!("正在等 seq={w}"),
+                        State::Sleeping { .. } => "sleep 中".to_string(),
+                        State::Done => "已结束".to_string(),
+                    };
+                    let next = s.next_seq;
+                    self.stats.note_anomaly(format_args!("unexpected：id={id} seq={seq}，该 session {state}，next_seq={next}"));
                 }
             }
         }

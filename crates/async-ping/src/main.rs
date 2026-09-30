@@ -37,12 +37,14 @@ async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
                 return stamp;
             }
             Err(e) => {
-                let mut st = sh.stats.borrow_mut();
-                match e {
-                    SendError::NoMbuf => st.c.no_mbuf += 1,
-                    SendError::TxFull => st.c.tx_full += 1,
+                {
+                    // 借用只活在这个块里，绝不跨越下面的 .await
+                    let mut st = sh.stats.borrow_mut();
+                    match e {
+                        SendError::NoMbuf => st.c.no_mbuf += 1,
+                        SendError::TxFull => st.c.tx_full += 1,
+                    }
                 }
-                drop(st);
                 sleep(sh.tx_retry).await;
             }
         }
