@@ -118,7 +118,7 @@ mod tests {
             let (lo, hi) = bounds(index(v));
             let vv = v.min((1u64 << (MAX_MSB + 1)) - 1);
             assert!(lo <= vv && vv < hi, "v={v} idx={} [{lo},{hi})", index(v));
-            if v >= EXACT && v < (1 << MAX_MSB) {
+            if (EXACT..(1 << MAX_MSB)).contains(&v) {
                 assert!(((hi - lo) as f64) / (v as f64) <= 1.0 / 128.0 + 1e-12);
             }
         }
