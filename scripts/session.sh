@@ -25,20 +25,7 @@ scripts/bind.sh > "$out/bind.txt" 2>&1 || die "绑定网卡失败（见 $out/bin
 scripts/check-env.sh > "$out/check-env.txt" 2>&1 || die "环境自检未通过（见 $out/check-env.txt）"
 log "环境自检通过"
 
-python3 - "$out/meta.json" "$name" <<'PY'
-import json, subprocess, sys
-sh = lambda c: subprocess.run(c, shell=True, capture_output=True, text=True).stdout.strip()
-json.dump({
-    "name": sys.argv[2],
-    "boot_id": open("/proc/sys/kernel/random/boot_id").read().strip(),
-    "boot_time": sh("uptime -s"),
-    "started": sh("date -u '+%Y-%m-%d %H:%M:%S'"),
-    "kernel": sh("uname -r"),
-    "git_commit": sh("git rev-parse --short=12 HEAD"),
-    # 与正式数据所用的提交相比，会影响生成代码的路径有没有变化（0 = 完全相同的代码）
-    "code_diff_lines_vs_ea2e92b": int(sh("git diff ea2e92b..HEAD -- crates Cargo.toml Cargo.lock .cargo rust-toolchain.toml | wc -l") or 0),
-}, open(sys.argv[1], "w"), ensure_ascii=False, indent=1)
-PY
+scripts/write_meta.py "$out/meta.json" "$name"
 
 run() {
     local c=$1 o=$2; shift 2

@@ -207,6 +207,39 @@ fn cancelled_sleep_does_not_fire_or_leak() {
     assert_eq!(finished.get(), 1);
 }
 
+/// deadline 已经过去的 sleep：不在 poll 里读时钟、不当场返回，而是登记后由紧接着的 timer 阶段触发。
+/// 它必须照常醒来（不会丢），`fired_at` 是 timer 阶段读到的时刻（不早于 deadline），并且先于还没到期的 sleep 醒来。
+#[test]
+fn sleep_with_past_deadline_fires_on_the_next_timer_pass() {
+    use rt::sleep_until;
+    let r = runtime(4);
+    let order = Rc::new(RefCell::new(Vec::new()));
+    let past = dpdk::tsc::rdtsc() - us(1_000);
+    {
+        let order = order.clone();
+        r.spawn(async move {
+            sleep(us(300)).await;
+            order.borrow_mut().push("later");
+        });
+    }
+    {
+        let order = order.clone();
+        r.spawn(async move {
+            let info = sleep_until(past).await;
+            assert_eq!(info.deadline, past);
+            assert!(info.fired_at > past, "fired_at 应当是 timer 阶段的时刻");
+            order.borrow_mut().push("past");
+            // 连续多次也一样：每次都让出一次，再被触发
+            for _ in 0..100 {
+                sleep_until(past).await;
+            }
+            order.borrow_mut().push("past x100");
+        });
+    }
+    r.run_offline();
+    assert_eq!(*order.borrow(), vec!["past", "past x100", "later"]);
+}
+
 #[test]
 #[should_panic(expected = "死锁")]
 fn deadlock_is_detected() {

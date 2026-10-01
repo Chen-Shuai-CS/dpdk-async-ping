@@ -5,5 +5,5 @@
  "started": "2026-10-01 11:44:19",
  "kernel": "6.18.48-107.148.amzn2023.x86_64",
  "git_commit": "11334b196717",
- "code_diff_lines_vs_ea2e92b": 0
+ "version": "v1"
 }

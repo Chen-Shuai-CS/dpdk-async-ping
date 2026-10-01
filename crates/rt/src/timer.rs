@@ -3,6 +3,11 @@
 //! 主循环每轮用同一个 `now` 检查堆顶，把所有到期的 timer 标记为已触发并唤醒对应 task。
 //! [`sleep`] 醒来时返回 [`SleepInfo`]：deadline 与"timer 发现到期"的时刻，
 //! 由调用方据此统计 sleep 误差（发现 − deadline）和段③（发现 → 下一个 T0）。
+//!
+//! **"到没到期"只在一个地方判断：主循环的 timer 阶段。** `Sleep` 自己从不读时钟——第一次被 poll 时只登记 timer。
+//! 早期版本在登记前会先读一次时钟看"是不是已经到期"；这次读时钟（约 18 ns）发生在 session 拿到回复之后的收尾里，
+//! 白白让同一批里排在后面的包多等（实测见 docs/REPORT.md）。即使 deadline 已经过去，登记后的 timer 也会在
+//! 主循环紧接着的 timer 阶段被触发，只是多经过一次就绪队列。
 
 use crate::runtime;
 use dpdk::tsc::rdtsc;
@@ -15,7 +20,7 @@ use timerq::TimerHeap;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SleepInfo {
     pub deadline: u64,
-    /// timer 发现到期的时刻（主循环本轮读到的 now）。若首次 poll 时已过期，则为那次 poll 的时刻。
+    /// timer 发现到期的时刻（主循环那一轮读到的 now）。
     pub fired_at: u64,
 }
 
@@ -105,14 +110,8 @@ impl Future for Sleep {
         let (ready, new_slot) = runtime::with_core(|c| {
             let mut t = c.timers.borrow_mut();
             match slot {
-                None => {
-                    let now = rdtsc();
-                    if now >= deadline {
-                        (Some(now), None)
-                    } else {
-                        (None, Some(t.alloc(deadline, cx.waker().clone())))
-                    }
-                }
+                // 第一次 poll：只登记，不读时钟（见模块说明）
+                None => (None, Some(t.alloc(deadline, cx.waker().clone()))),
                 Some(idx) => match &mut t.slots[idx as usize] {
                     Slot::Fired(at) => {
                         let at = *at;

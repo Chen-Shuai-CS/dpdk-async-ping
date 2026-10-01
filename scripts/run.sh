@@ -21,9 +21,13 @@ esac
 [[ -n "${DPDK_PCI:-}" ]] || die "缺少 $NIC_ENV（先运行 scripts/setup.sh）"
 "$REPO_ROOT/scripts/bind.sh" >/dev/null           # 重启后网卡会回到内核，这里自动重新绑定
 
-# shellcheck disable=SC1091
-source "$HOME/.cargo/env"
-(cd "$REPO_ROOT" && cargo build --release -q --bin "$bin")
+# BQ_BIN_DIR：运行别处编译好的二进制（比如 scripts/build-version.sh v1 编出来的旧版本），此时不编译当前代码
+bin_dir="${BQ_BIN_DIR:-$REPO_ROOT/target/release}"
+if [[ -z "${BQ_BIN_DIR:-}" ]]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+    (cd "$REPO_ROOT" && cargo build --release -q --bin "$bin")
+fi
 
 mkdir -p "$REPO_ROOT/logs"
 ts=$(date +%Y%m%d-%H%M%S)
@@ -39,7 +43,7 @@ done
 log "运行 $tag（$bin）$*  → $log_file"
 prev_j=""
 set +e
-sudo "$REPO_ROOT/target/release/$bin" \
+sudo "$bin_dir/$bin" \
     --pci "$DPDK_PCI" --src-ip "$DPDK_IP" --dst-ip "$PEER_IP" --dst-mac "$PEER_MAC" \
     --lcore "$DPDK_LCORE" "${json_arg[@]}" "$@" 2>&1 | tee "$log_file"
 rc=${PIPESTATUS[0]}

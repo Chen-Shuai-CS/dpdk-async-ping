@@ -12,6 +12,7 @@
 #   aux    辅助对比：delay 800 µs 的 A / B、单路的 A（logs/final/）
 #   fault  故障注入矩阵（logs/fault/<时间>/）
 #   soak   长时间运行：A、B 各 30 分钟（logs/soak/）
+#   probe  probe 构建的诊断（段①、段②的子步骤），各 30 秒（logs/probe/）
 #   report 重新生成 docs/REPORT.md 的表格与 docs/img/ 的图
 #
 # 要求：先提交代码再跑（报告会记录构建时的 git 提交，并核对源码树是干净的）。
@@ -19,7 +20,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 cd "$REPO_ROOT"
-stages=("$@"); (( ${#stages[@]} )) || stages=(main ab diag aux fault soak report)
+stages=("$@"); (( ${#stages[@]} )) || stages=(main ab diag aux fault soak probe report)
 want() { local s; for s in "${stages[@]}"; do [[ $s == "$1" ]] && return 0; done; return 1; }
 run() {  # run <A|B> <输出前缀> [参数...]：日志 → <前缀>.log，报告 → <前缀>.json
     local c=$1 out=$2; shift 2
@@ -30,6 +31,7 @@ run() {  # run <A|B> <输出前缀> [参数...]：日志 → <前缀>.log，报�
 mkdir -p logs/final logs/diag logs/soak logs/tmp
 
 if want main; then
+    scripts/write_meta.py logs/final/meta.json "正式数据"
     run A logs/final/A-600 --delay-us 500 --duration-sec 600 --samples logs/tmp/A-600.samples
     run B logs/final/B-600 --delay-us 500 --duration-sec 600 --samples logs/tmp/B-600.samples
     python3 scripts/ci.py --a logs/tmp/A-600.samples --b logs/tmp/B-600.samples --out logs/final/ci.json
@@ -60,6 +62,18 @@ fi
 if want soak; then
     run A logs/soak/A-1800 --delay-us 500 --duration-sec 1800
     run B logs/soak/B-1800 --delay-us 500 --duration-sec 1800
+fi
+if want probe; then
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+    cargo build --release -q -p async-ping -p raw-ping --features probe --target-dir target-probe
+    mkdir -p logs/probe
+    for b in async-ping raw-ping; do
+        log "▶ probe $b"
+        sudo "target-probe/release/$b" --pci "$DPDK_PCI" --src-ip "$DPDK_IP" --dst-ip "$PEER_IP" --dst-mac "$PEER_MAC" --lcore "$DPDK_LCORE" \
+            --delay-us 500 --duration-sec 30 --progress-sec 0 --json "logs/probe/$b-probe.json" > "logs/probe/$b-probe.log" 2>&1 || warn "probe $b 失败"
+        sudo chown "$(id -u):$(id -g)" "logs/probe/$b-probe.json"
+    done
 fi
 if want report; then
     python3 scripts/make_report.py
