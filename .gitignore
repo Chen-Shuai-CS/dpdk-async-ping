@@ -5,3 +5,7 @@
 /logs/tmp/
 # C 的逐包 ping 原始输出（64 个文件、数百 MB），任何层级都不进仓库；汇总结果 summary.txt / C.json 会保留
 /logs/**/ping-*.txt
+# 直接运行 scripts/run.sh 时自动生成的日志（logs/A-<时间>.log / .json）：随手测试的产物，不进仓库。
+# 要留档的运行由 campaign.sh / session.sh / ab.sh 写进各自的子目录。
+/logs/[AB]-2*.log
+/logs/[AB]-2*.json

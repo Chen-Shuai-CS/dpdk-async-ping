@@ -5,21 +5,20 @@
 #
 # 用途：A 的尾部分位数存在一个随时间变化的"状态"（见 docs/REPORT.md §3.4）。10 分钟一次的长测看不清它什么时候来、持续多久，
 # 用很多次短测把时间轴铺密。输出 <目录>/drift.tsv（一次运行一行）和每次运行的 JSON。
+#
+# 另外：一旦某次 A 的段② p99 超过 DRIFT_HEAVY_NS（默认 400 ns，即"尾部变重"的状态），立刻补跑一对诊断口径的 A / B
+# （--diag-pre-t0 mfence），记到 <目录>/mfence.tsv —— 用来回答"在这种状态下，把停顿移到 T0 之前之后 A − B 是多少"。
+# 最多补跑 DRIFT_MFENCE_MAX 对（默认 15），避免占用过多时间。
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 cd "$REPO_ROOT"
 out=${1:?用法：scripts/drift.sh <输出目录> [分钟数] [每次秒数]}; mins=${2:-60}; secs=${3:-20}
 mkdir -p "$out/runs"
 tsv="$out/drift.tsv"
-[[ -f $tsv ]] || printf 'utc\tclient\tsent\tlost\tleak\tinproc_mean\tinproc_p50\tinproc_p99\tseg1_mean\tseg1_slow_pct\tseg2_mean\tseg2_p50\tseg2_p90\tseg2_p99\tseg3_mean\ttotal_mean\trtt_p50_us\n' > "$tsv"
-end=$(( $(date +%s) + mins * 60 ))
-i=0
-while (( $(date +%s) < end )); do
-    i=$((i + 1))
-    for c in A B; do
-        j="$out/runs/$c-$(printf '%03d' $i).json"
-        RUN_LOG=/dev/null scripts/run.sh "$c" --delay-us 500 --duration-sec "$secs" --progress-sec 0 --json "$j" > /dev/null 2>&1 || true
-        python3 - "$j" "$c" >> "$tsv" <<'PY'
+heavy_ns=${DRIFT_HEAVY_NS:-400}; mf_max=${DRIFT_MFENCE_MAX:-15}; mf_done=0
+header='utc\tclient\tsent\tlost\tleak\tinproc_mean\tinproc_p50\tinproc_p99\tseg1_mean\tseg1_slow_pct\tseg2_mean\tseg2_p50\tseg2_p90\tseg2_p99\tseg3_mean\ttotal_mean\trtt_p50_us\n'
+row() {  # row <json> <A|B>：把一次运行压成一行
+    python3 - "$1" "$2" <<'PY'
 import json, sys, datetime
 r = json.load(open(sys.argv[1]))
 g = lambda q: next(m for m in r["metrics"] if m["name"].strip().startswith(q))
@@ -31,6 +30,28 @@ print("\t".join(str(x) for x in [
     round(s2["mean"], 1), s2["p50_interp"], s2["p90_interp"], s2["p99_interp"], round(s3["mean"], 1),
     round(s1["mean"] + s2["mean"] + s3["mean"], 1), round(e["p50"] / 1000)]))
 PY
+}
+[[ -f $tsv ]] || printf "$header" > "$tsv"
+end=$(( $(date +%s) + mins * 60 ))
+i=0
+while (( $(date +%s) < end )); do
+    i=$((i + 1))
+    for c in A B; do
+        j="$out/runs/$c-$(printf '%03d' $i).json"
+        RUN_LOG=/dev/null scripts/run.sh "$c" --delay-us 500 --duration-sec "$secs" --progress-sec 0 --json "$j" > /dev/null 2>&1 || true
+        row "$j" "$c" >> "$tsv"
     done
+    # A 的尾部变重了？立刻补一对 mfence 口径
+    a_p99=$(tail -2 "$tsv" | awk -F'\t' '$2=="A"{print int($14)}')
+    if (( ${a_p99:-0} > heavy_ns && mf_done < mf_max )); then
+        mf_done=$((mf_done + 1))
+        mkdir -p "$out/mfence"
+        [[ -f "$out/mfence.tsv" ]] || printf "$header" > "$out/mfence.tsv"
+        for c in A B; do
+            j="$out/mfence/$c-$(printf '%03d' $i).json"
+            RUN_LOG=/dev/null scripts/run.sh "$c" --delay-us 500 --duration-sec "$secs" --progress-sec 0 --diag-pre-t0 mfence --json "$j" > /dev/null 2>&1 || true
+            row "$j" "$c" >> "$out/mfence.tsv"
+        done
+    fi
 done
 log "漂移监测完成：$i 对 → $tsv"
