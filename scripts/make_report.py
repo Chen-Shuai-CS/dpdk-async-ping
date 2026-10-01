@@ -331,6 +331,61 @@ def section_diag(a):
     return "\n".join(out)
 
 
+def session_row(meta, pa, pb, ci_path, ab_dir):
+    """一个会话一行：主考核口径的 A − B（单次运行，带区间）+ 交替多对的逐对差值。"""
+    A, B = load(pa), load(pb)
+    c = load(ci_path)["metrics"]["inproc"]["diff"]
+    tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
+    lost = A["counters"]["timeouts"] + B["counters"]["timeouts"]
+    leak = sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for r in (A, B))
+    cells = [f"**{meta['name']}**", meta["boot_time"], meta["started"][:16],
+             f"{metric(A, 'in-process')['p50_interp']:.1f} / {metric(B, 'in-process')['p50_interp']:.1f}",
+             f"**{c['p50']['interp']:+.1f}** {ci_str(c['p50']['interp_ci'])}", f"**{c['p99']['interp']:+.1f}** {ci_str(c['p99']['interp_ci'])}",
+             f"**{tot(A) - tot(B):+.1f}**"]
+    runs = {}
+    for p in sorted(glob.glob(os.path.join(ROOT, ab_dir, "[AB]-*.json"))):
+        with open(p) as f:
+            r = json.load(f)
+        runs[(r["client"][0], int(os.path.basename(p).split("-")[1].split(".")[0]))] = r
+    idx = sorted(i for c_, i in runs if c_ == "A" and ("B", i) in runs)
+    if idx:
+        d = lambda fn: [fn(runs[("A", i)]) - fn(runs[("B", i)]) for i in idx]
+        for fn in (lambda r: metric(r, "in-process")["p50_interp"], lambda r: metric(r, "in-process")["p99_interp"], tot):
+            m, lo, hi = mean_ci(d(fn))
+            cells.append(f"**{m:+.1f}** [{lo:+.1f}, {hi:+.1f}]")
+        lost += sum(r["counters"]["timeouts"] for r in runs.values())
+        leak += sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for r in runs.values())
+        cells.append(f"{len(idx)} 对")
+    else:
+        cells += ["—", "—", "—", "—"]
+    cells.append(f"{lost} / {leak}")
+    return "| " + " | ".join(cells) + " |"
+
+
+def section_sessions(a):
+    """不同开机 / 不同日期的会话对比。"""
+    rows = []
+    ab = sorted(glob.glob(os.path.join(ROOT, a.ab)))
+    try:
+        rows.append(session_row(load("logs/final/meta.json"), a.main_a, a.main_b, a.ci, os.path.relpath(ab[-1], ROOT) if ab else "none"))
+    except FileNotFoundError:
+        pass
+    metas = []
+    for d in glob.glob(os.path.join(ROOT, "logs/sessions/*/")):
+        rel = os.path.relpath(d, ROOT)
+        if os.path.exists(os.path.join(d, "ci.json")):
+            metas.append((load(rel + "/meta.json"), rel))
+    for meta, rel in sorted(metas, key=lambda x: x[0]["started"]):
+        rows.append(session_row(meta, rel + "/A-600.json", rel + "/B-600.json", rel + "/ci.json", rel + "/ab"))
+    if len(rows) < 2:
+        return "（只有一个会话；重启后运行 scripts/session.sh <名字>）"
+    boots = len({m["boot_id"] for m, _ in metas} | {load("logs/final/meta.json")["boot_id"]})
+    head = ["| 会话 | 这次开机的时间 | 测量开始（UTC） | 进程内 p50：A / B | 主考核 A − B：p50 [95% 区间] | p99 [95% 区间] | 每请求总账 "
+            "| 交替多对的逐对差值：p50 | p99 | 每请求总账 | 对数 | 丢包 / 泄漏（全部轮次合计） |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    note = f"\n共 {len(rows)} 个会话，分属 {boots} 次不同的开机（由内核的 boot_id 区分）。所有会话运行的是同一份代码（`crates/` 与正式数据所用的提交逐字节相同）。"
+    return "\n".join(head + rows) + note
+
+
 def section_stores(a):
     """剂量实验：T0 之前多做 N 次普通写入。"""
     d = os.path.join(ROOT, a.diag_dir)
@@ -412,7 +467,7 @@ def section_env(a):
 
 def sections_table():
     return (("main", section_main), ("totals", section_totals), ("ab", section_ab), ("c", section_c), ("probe", section_probe),
-            ("ci", section_ci), ("burst", section_burst), ("diag", section_diag), ("stores", section_stores), ("fault", section_fault),
+            ("ci", section_ci), ("burst", section_burst), ("diag", section_diag), ("stores", section_stores), ("sessions", section_sessions), ("fault", section_fault),
             ("soak", section_soak), ("env", section_env))
 
 

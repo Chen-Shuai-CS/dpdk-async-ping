@@ -5,7 +5,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 pairs=${1:-3}; secs=${2:-30}; shift 2 || true
-out="$REPO_ROOT/logs/ab-$(date +%Y%m%d-%H%M%S)"
+out="${AB_OUT:-$REPO_ROOT/logs/ab-$(date +%Y%m%d-%H%M%S)}"     # AB_OUT：由调用者指定输出目录（scripts/session.sh 用）
 mkdir -p "$out"
 for i in $(seq 1 "$pairs"); do
     if (( i % 2 )); then order="A B"; else order="B A"; fi
