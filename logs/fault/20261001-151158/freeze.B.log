@@ -1,0 +1,37 @@
+EAL: No free 1048576 kB hugepages reported on node 0
+ENA_DRIVER: ena_get_metrics_entries(): 0x6 customer metrics are supported
+ENA_DRIVER: ena_rx_queue_release(): Rx queue 0:0 released
+ENA_DRIVER: ena_tx_queue_release(): Tx queue 0:0 released
+
+==================== B · raw-ping（手写 busy-poll，无 runtime） ====================
+sessions 64  delay 500 µs  duration 8 s (实际 8.00 s)  payload 64 B  timeout 10000 µs  TSC 2.600 GHz
+sent 591624  received 591624  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  foreign 0  tsc-mismatch 0  other 0  arp-replied 0  tx-full 0  no-mbuf 0
+对账：sent − received − timeouts − in-flight = 0（应为 0）；丢包 = timeouts = 0（其中 0 个迟到收到）
+收包对账：rx 591624 − (received + late + unexpected + foreign + other + arp) = 0（应为 0）
+
+metric (ns)                       count      min     mean      p50      p90      p99    p99.9   p99.99        max
+in-process ①+②  [排名指标]           591624       50      188      170      260      450      561      669       3080
+seg① send  T1−T0                 591624       40       68       50       70      310      330      429       2330
+seg② recv  T3−T2                 591624       10      120      110      160      260      340      450       3030
+end-to-end T3−T0                 591624    38250   147709   159507   162658   229218   249698   303261     313310
+seg③ wake→next T0                591624       20      106       50      300      410      761     4935      31610
+sleep error                      591624        0   217623       10      120      320      690 2006813144 2011603030
+deadline→next T0 (误差+③)          591624       30   217728       60      410      669     1000 2006813144 2011604760
+  (诊断) seg① 距上次发送<100ns           31646      230      305      310      320      330      441     1258       2330
+  (诊断) seg① 100–250ns              2323      140      207      200      210      310      350      440        440
+  (诊断) seg① 250–500ns            119992       40       54       50       60       80      180      300       2210
+  (诊断) seg① 500ns–2µs            307778       40       54       50       60       70      180      290       2160
+  (诊断) seg① ≥2µs                 129885       40       54       50       60       80      180      290       2300
+  (诊断) 维护: rte_timer_manage       59880       20       26       30       30       40       40      809       5820
+  (诊断) 维护: 整个节拍                   59880       40      288      200      681     1000     1178     2775       7170
+
+段① ≥ 125 ns 的样本占 6.418%（段①是两段式分布，它的 p99 落在哪一段只看这个占比在 1% 的哪一边）
+rx_burst 包数分布（非空 burst）：1:79.23%  2:16.95%  3:3.20%  4:0.62%  其余更大的 burst 共 10 次（最大一次 11 个包）
+主循环被外部打断：空轮询 > 1 µs 共 1651 次（累计 2015.2 ms，最长 2011678.4 µs）；取包前 > 10 µs 共 1 次（累计 0.0 ms，最长 15.1 µs）
+port: ipackets 591624  opackets 61676083  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
+AWS allowance（本次运行增量）：bw_in_allowance_exceeded=0  bw_out_allowance_exceeded=0  pps_allowance_exceeded=0  conntrack_allowance_exceeded=0  linklocal_allowance_exceeded=0
+mbuf：pool 8191，初值 avail 8191（端口启动后 7168），关停后 avail 8191 → 泄漏 0 ✔
+退出原因：到达 --duration-sec，停止发送并等在途请求收尾
+构建：commit f5b43e521118 · rustc 1.98.1 (48a229cea 2026-09-01) · DPDK 25.11.3 · release
+环境：AMD EPYC 9R45 · 内核 6.18.48-107.148.amzn2023.x86_64 · 网卡 0000:28:00.0 驱动 igb_uio（写合并映射：是）· clocksource tsc · rdtscp constant_tsc nonstop_tsc tsc_known_freq
+时钟：读一次 rdtscp 平均 17.5 ns（每个被测段恰好含一次）；TSC 读数步长 26 周期 = 10.0 ns（时间戳分辨率，所有时间差都是它的整数倍）；周期→纳秒换算与 CLOCK_MONOTONIC_RAW 相差 -0.7 ppm

@@ -270,8 +270,9 @@ def main():
     ab = a.ab or (sorted(glob.glob(os.path.join(ROOT, "logs/ab-*")))[-1:] or [""])[0]
     if ab:
         plot_abba(ab if os.path.isabs(ab) else os.path.join(ROOT, ab), out)
-    for d in sorted(glob.glob(os.path.join(ROOT, "logs/sessions/*/"))):
-        plot_drift(d, out)
+    for root in ("logs/v1/sessions", "logs/sessions"):
+        for d in sorted(glob.glob(os.path.join(ROOT, root, "*/"))):
+            plot_drift(d, out)
 
 
 if __name__ == "__main__":

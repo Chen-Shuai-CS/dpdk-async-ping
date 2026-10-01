@@ -1,0 +1,41 @@
+EAL: No free 1048576 kB hugepages reported on node 0
+ENA_DRIVER: ena_get_metrics_entries(): 0x6 customer metrics are supported
+ENA_DRIVER: ena_rx_queue_release(): Rx queue 0:0 released
+ENA_DRIVER: ena_tx_queue_release(): Tx queue 0:0 released
+
+==================== B · raw-ping（手写 busy-poll，无 runtime） ====================
+sessions 64  delay 500 µs  duration 30 s (实际 30.00 s)  payload 64 B  timeout 10000 µs  TSC 2.600 GHz
+sent 2994422  received 2994422  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  foreign 0  tsc-mismatch 0  other 0  arp-replied 0  tx-full 0  no-mbuf 0
+对账：sent − received − timeouts − in-flight = 0（应为 0）；丢包 = timeouts = 0（其中 0 个迟到收到）
+收包对账：rx 2994422 − (received + late + unexpected + foreign + other + arp) = 0（应为 0）
+
+metric (ns)                       count      min     mean      p50      p90      p99    p99.9   p99.99        max
+in-process ①+②  [排名指标]          2994422       80      202      190      240      340      441      549       7330
+seg① send  T1−T0                2994422       70       83       80       90      100      260      390       2580
+seg② recv  T3−T2                2994422       10      119      110      160      260      330      429       7240
+end-to-end T3−T0                2994422    36510   141031   158720   163446   241821   249698   300110     378910
+seg③ wake→next T0               2994422       30      125       60      310      721     1129     1529      10340
+sleep error                     2994422        0       41       10      150      280      660     1643      14040
+deadline→next T0 (误差+③)         2994422       40      166       70      460      852     1252     2123      14320
+  (诊断) seg① 距上次发送<100ns               0        0        0        0        0        0        0        0          0
+  (诊断) seg① 100–250ns                64       80       86       80       90      180      180      180        180
+  (诊断) seg① 250–500ns            766275       70       83       80       90      110      190      310       2460
+  (诊断) seg① 500ns–2µs           1573897       70       82       80       90      100      170      260       2330
+  (诊断) seg① ≥2µs                 654186       70       84       80       90      100      380      401       2580
+  (probe) ①取 mbuf               2994358       10       17       20       20       20       20       20       2390
+  (probe) ①写包                   2994358       10       17       20       20       20       30       30       2040
+  (probe) ①tx_burst             2994358       40       48       50       60       70      220      350       2540
+  (诊断) 维护: rte_timer_manage      299948       20       30       30       30       40       40      580       3550
+  (诊断) 维护: 整个节拍                  299948       40      294      220      700      981     1190     1630       6650
+
+段① ≥ 125 ns 的样本占 0.478%（段①是两段式分布，它的 p99 落在哪一段只看这个占比在 1% 的哪一边）
+rx_burst 包数分布（非空 burst）：1:79.21%  2:17.38%  3:3.11%  4:0.30%  其余更大的 burst 共 18 次（最大一次 27 个包）
+主循环被外部打断：空轮询 > 1 µs 共 6494 次（累计 12.3 ms，最长 45.2 µs）；取包前 > 10 µs 共 7 次（累计 0.2 ms，最长 135.9 µs）
+port: ipackets 2994422  opackets 64078881  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
+AWS allowance（本次运行增量）：bw_in_allowance_exceeded=0  bw_out_allowance_exceeded=0  pps_allowance_exceeded=0  conntrack_allowance_exceeded=0  linklocal_allowance_exceeded=0
+mbuf：pool 8191，初值 avail 8191（端口启动后 7168），关停后 avail 8191 → 泄漏 0 ✔
+退出原因：到达 --duration-sec，停止发送并等在途请求收尾
+构建：commit f5b43e521118 · rustc 1.98.1 (48a229cea 2026-09-01) · DPDK 25.11.3 · release · features: probe
+环境：AMD EPYC 9R45 · 内核 6.18.48-107.148.amzn2023.x86_64 · 网卡 0000:28:00.0 驱动 igb_uio（写合并映射：是）· clocksource tsc · rdtscp constant_tsc nonstop_tsc tsc_known_freq
+时钟：读一次 rdtscp 平均 17.6 ns（每个被测段恰好含一次）；TSC 读数步长 26 周期 = 10.0 ns（时间戳分辨率，所有时间差都是它的整数倍）；周期→纳秒换算与 CLOCK_MONOTONIC_RAW 相差 -0.7 ppm
+[probe] tx_burst > 125 ns 的占比，按「发送计数 % 32」分（32 个 LLQ 条目 = 一个 4 KB 页）：0:1.13% 1:0.16% 2:0.13% 3:0.50% 4:0.16% 5:1.09% 6:0.18% 7:0.69% 8:0.24% 9:0.16% 10:0.15% 11:0.74% 12:0.25% 13:0.19% 14:0.16% 15:1.27% 16:0.18% 17:0.14% 18:0.15% 19:0.84% 20:0.22% 21:0.14% 22:0.18% 23:0.88% 24:0.16% 25:0.16% 26:0.19% 27:0.60% 28:0.17% 29:0.16% 30:0.17% 31:0.63%

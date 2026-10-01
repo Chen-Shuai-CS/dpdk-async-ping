@@ -1,0 +1,23 @@
+{
+  "client": "C · system ping",
+  "mode": "kernel",
+  "flows": 64,
+  "interval_ms": 1.0,
+  "duration_sec": 60.0,
+  "sent": 3840000,
+  "received": 3840000,
+  "metrics": [
+    {
+      "name": "end-to-end（ping - 默认：内核接收时间戳）",
+      "count": 3840000,
+      "min": 42000,
+      "mean": 233483.55572916666,
+      "p50": 215000,
+      "p90": 378000,
+      "p99": 469000,
+      "p99_9": 518000,
+      "p99_99": 557000,
+      "max": 574000
+    }
+  ]
+}

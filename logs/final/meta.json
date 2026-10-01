@@ -1,0 +1,9 @@
+{
+ "name": "正式数据",
+ "version": "v2",
+ "boot_id": "afec1b80-9e2b-43ac-af84-31bef119c4eb",
+ "boot_time": "2026-10-01 11:43:39",
+ "started": "2026-10-01 16:35:09",
+ "kernel": "6.18.48-107.148.amzn2023.x86_64",
+ "git_commit": "f5b43e521118"
+}
