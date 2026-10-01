@@ -51,10 +51,31 @@ def main():
     print(gates(A, "A async-ping"))
     print(gates(B, "B raw-ping"))
 
+    print("\n### 收包对账与异常包\n")
+    print("| 客户端 | 收到的包 | = 按时回复 | + 迟到 | + 对不上号 | + 外来回复 | + 无关帧 | + ARP 请求 | 差值 | 时间戳核对不符 |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    for label, r in (("A", A), ("B", B)):
+        c = r["counters"]
+        parts = [c["received"], c["late"], c["unexpected"], c.get("foreign", 0), c["other_rx"], c["arp_replies"]]
+        print(f"| {label} | {c['rx_pkts']:,} | " + " | ".join(f"{x:,}" for x in parts) + f" | {c['rx_pkts'] - sum(parts)} | {c.get('tsc_mismatch', 0)} |")
+    for label, r in (("A", A), ("B", B)):
+        for note in r.get("anomalies", []):
+            print(f"- {label}：{note}")
+
+    print("\n### 主循环被外部打断（诊断）\n")
+    print("| 客户端 | 空轮询 > 1 µs：次数 | 累计 | 最长 | 取包前 > 10 µs：次数 | 最长 | sleep 误差 max | 进程内 max |")
+    print("|---|---|---|---|---|---|---|---|")
+    for label, r, rs in (("A", A, ra), ("B", B, rb)):
+        s = r.get("stalls")
+        if not s:
+            continue
+        print(f"| {label} | {s['count']:,} | {s['total_ns'] / 1e6:.1f} ms | {s['max_ns'] / 1e3:.1f} µs | {s['rx_count']} | {s['rx_max_ns'] / 1e3:.1f} µs "
+              f"| {find(rs, 'sleep')['max'] / 1e3:.1f} µs | {find(rs, 'in-process')['max'] / 1e3:.1f} µs |")
+
     print("\n### 分位数（ns）与 A − B\n")
     print("| 指标 | | " + " | ".join(q for q, _ in QS) + " |")
     print("|---|---|" + "---|" * len(QS))
-    for name in ["in-process", "seg①", "seg②", "end-to-end", "seg③", "sleep"]:
+    for name in ["in-process", "seg①", "seg②", "end-to-end", "seg③", "sleep", "deadline"]:
         x, y = find(ra, name), find(rb, name)
         if not x or not y:
             continue
@@ -68,7 +89,7 @@ def main():
     print("|---|---|---|---|---|---|---|")
     na, nb = find(ra, "seg①")["count"], find(rb, "seg①")["count"]
     for k in ra:
-        if k.startswith("(诊断)"):
+        if k.startswith("(诊断) seg①"):
             x, y = ra[k], rb.get(k)
             if y is None:
                 continue

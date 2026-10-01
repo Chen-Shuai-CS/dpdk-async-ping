@@ -28,7 +28,7 @@ fn us(n: u64) -> u64 {
 }
 
 fn runtime(max_tasks: usize) -> Runtime {
-    Runtime::new(RuntimeConfig { max_tasks, max_timers: 64, tick_cycles: us(100) })
+    Runtime::new(RuntimeConfig { max_tasks, max_timers: 64, tick_cycles: us(100), stall_threshold_cycles: us(1), stall_rx_threshold_cycles: us(10) })
 }
 
 #[test]

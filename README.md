@@ -9,7 +9,18 @@
 | **B** | `raw-ping` | 行为完全相同，手写 busy-poll 循环 + 状态表，不经过 runtime |
 | **C** | 系统 `ping` | 走内核网卡，作为"不做 kernel bypass"的参照 |
 
-**结果速览**与完整报告见 [`docs/REPORT.md`](docs/REPORT.md)；开发过程中的每个决定与实验见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
+**结果速览**（64 session、delay 500 µs、各连续 10 分钟；完整报告见 [`docs/REPORT.md`](docs/REPORT.md)）：
+
+| | 样本 | 丢包 | mbuf 泄漏 | 进程内 p50 | p99 | p99.9 | 段②（接收侧）p50 / p99 |
+|---|---|---|---|---|---|---|---|
+| A async-ping | 5461 万 | 0 | 0 | 180 ns | 360 ns | 460 ns | 130 / 300 ns |
+| B raw-ping | 5418 万 | 0 | 0 | 170 ns | 469 ns | 580 ns | 120 / 280 ns |
+| **A − B** | | | | **+10 ns** | **−109 ns** | −120 ns | **+10 / +20 ns** |
+
+- runtime 真正的税在接收侧（段②）：p50 +10 ns、p99 +20 ~ +30 ns。p99 的 A − B 为负，是因为 B 连续发送时要在段①里等网卡的写合并缓冲排空，不代表 runtime 更快（§4.3）。
+- kernel bypass 的收益（A 对系统 ping）：单路 p99 68 µs 对 148 µs；64 路 p99.99 0.33 ms 对 1.51 ms，max 0.37 ms 对 16.8 ms。
+
+开发过程中的每个决定、实验和走过的弯路见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 
 ---
 
@@ -36,16 +47,18 @@
 session 的代码就是 SPEC 要求的形状（`crates/async-ping/src/main.rs`）：
 
 ```rust
-loop {
-    record(held.take());                          // 上一轮的 reply：sleep 之后才记录、释放 mbuf
-    let stamp = send(&sh, id, seq).await;         // T0 → T1
-    let r = flow.mailbox.recv().await;            // T2 → T3；超时时 driver 放进 Err(Timeout)
-    let t3 = rdtsc();
-    held = r.ok().map(|reply| (reply, stamp, t3));
-    woke = sleep_until(t3 + delay).await;         // 期间 `held` 持有 reply 的 mbuf
+while !sh.stopping.get() {
+    let stamp = send(&sh, id, seq).await;         // T0 → T1，段①（T0 = send() 的第一行）
+    let reply = wait_reply(&sh, id, seq).await;   // T2 → T3，段②；超时也从这里返回 Err(Timeout)
+    let t3 = rdtsc();                             // T3：本 task 从 wait_reply().await 恢复执行
+    woke = sleep_until(t3 + sh.delay).await;      // 样本之外；期间 reply（及其 mbuf）被本 task 持有
+    record(&sh, id, seq, stamp, reply, t3);       // 记录样本；reply 在这里 Drop → mbuf 归还
     seq = seq.wrapping_add(1);
 }
 ```
+
+（为突出形状省略了两行统计代码；与 SPEC §5 的区别只有：`send` 内部自己重试而不返回错误，
+超时不用 `?` 退出循环——超时的请求计为丢失，session 照常继续。）
 
 ## 2. 仓库结构
 
@@ -63,10 +76,13 @@ scripts/
   setup.sh     一键环境搭建（幂等，分阶段）      run.sh     一键运行 A / B / C
   detect-nic.sh / bind.sh / unbind.sh / check-env.sh
   ab.sh        A/B 按 ABBA 顺序交替多轮对比     run-c.sh   C（系统 ping）
-  summarize.py / summarize_c.py / report.py      汇总多轮结果、生成报告表格
+  summarize.py / summarize_c.py / report.py / make_report.py   汇总多轮结果、生成 docs/REPORT.md 的全部表格
 config/nic.env 自动探测生成的网卡参数
 docs/          REPORT.md（结果）、WORKLOG.md（开发记录）
 logs/          运行日志与 JSON 报告
+  final/       正式重测的 JSON（10 分钟 A / B、同速率、单路）   ab-*/     ABBA 交替各轮
+  C-*/         系统 ping 的汇总                              probe/    probe 构建的诊断结果
+  setup/       环境搭建与首次上线验证的日志                    history/  修复前的运行（保留作对比）
 ```
 
 **A 与 B 共用除调度以外的全部代码**（数据面、发送函数、协议解析、TimerHeap、直方图、维护动作、报表），
@@ -92,22 +108,64 @@ logs/          运行日志与 JSON 报告
 - **ENA 专项**：igb_uio + `wc_activate=1` 打开写合并（LLQ 依赖它；用 PAT 表确认了 BAR2 为 write-combining）；
   主循环周期性调用 `rte_timer_manage()`（ENA watchdog 依赖应用驱动 rte_timer）；注册 reset 事件回调；
   空闲时主动 `tx_done_cleanup`，尽量不让 TX 回收落进段①。
-- **测量方法本身经过验证**（详见 §4）：发现并修正了 rdtsc 乱序执行造成的系统性偏差。
+- **测量方法本身经过验证**（详见 §4）：发现并修正了 rdtsc 乱序执行造成的系统性偏差、启动阶段对 sleep 误差的污染；
+  主循环自带"被外部打断"的检测，最大值尖刺可以直接归因。
+- **收到的包先验明正身**：echo reply 必须来自对端 IP 才会交给 session；record 时再核对它带回的时间戳。
+
+### 相位设计（64 个 session 的相位关系）
+
+- **初始相位**：64 个 session 均匀错开在一个 delay 周期内（相邻 7.8 µs），不让它们同时发、同时回。
+- **稳态相位不由我们决定**：这是闭环（收到 reply 再 sleep 再发），每个 session 的周期 = RTT + delay。
+  对端网卡的中断合并会把相近时刻到达的请求攒成一批处理、一批回复，于是这些 session 的 T3 相近、sleep 同时到期、下一次发送也挤在一起。
+  实测两边都有约 80% 的发送距上一次发送不到 2 µs；非空 rx_burst 里 1 个包占 77%、2 个占 18%、3 个占 4%、4 个占 0.6%。
+- **没有做的事**：给 delay 加随机抖动来打散相位。它会改变 `--delay-us N` 的语义，而且对端仍会重新把它们捏成批次。
+- **为什么要在意**：批次越大，同一批里靠后的包等得越久（段②的 p99），连续发送也越多（段①的写合并等待，见 §4.3）。
+  runtime 的应对是"每分发一个包就立刻 poll 它的 task"，让靠前的包不被整批拖慢。
+
+### 取舍：时间花在哪、没花在哪
+
+| 投入了 | 理由 |
+|---|---|
+| A 与 B 共用除调度之外的全部代码 | 否则 A − B 不是抽象层成本 |
+| 验证测量工具本身（rdtsc → rdtscp、起点延后、停顿检测） | 这三处任何一处不处理，报出来的数字都是错的 |
+| 把每个异常数字追到原因（段①尾巴 → 网卡；sleep 误差 max → 启动假象；外来回复 → 源 IP 检查） | SPEC 问的是"你是否知道它收在哪里" |
+| 对账与零泄漏的可核对性（发送对账、收包对账、mbuf 记账） | 硬门槛，且要能"自洽解释" |
+
+| 没有投入 | 理由 |
+|---|---|
+| 进一步压榨段②（RefCell → Cell、泛型任务存储省 vtable） | 接收侧的税已是 p50 +10 ns，接近测量分辨率 |
+| 每个 session 一个预构建模板 mbuf + refcnt（省掉分配和 106 B 拷贝） | A、B 同样受益，不改变 A − B；且要处理"网卡还在读时不能改模板" |
+| 攒批发送、或人为拉开 B 的发送间隔 | 前者改变 T1 的语义，后者是故意拖慢 B，都会让 A − B 失真 |
+| 时间轮、每包一个超时 timer | 只有 64 个 timer；超时用 100 µs 一次的扫描即可，没有每包的堆操作 |
+
+### 关于"语言必须是 Rust"
+
+全部逻辑都是 Rust。仓库里唯一的 C 是 `crates/dpdk-sys/src/shim.c`（约 20 行）：DPDK 的 `rte_eth_rx_burst` / `tx_burst` / `rte_pktmbuf_alloc` / `free`
+在头文件里是 `static inline`，库里没有符号，bindgen 无法直接绑定，只能包一层普通函数（bindgen 自己的 `wrap_static_fns` 也是生成同样的 C）。
+`scripts/` 下的 bash / Python 只是环境搭建与结果汇总工具，不参与运行。
+
+依赖树里没有任何现成 runtime：
+
+```bash
+$ grep -ciE '^name = "(tokio|async-std|smol|glommio|monoio|futures|futures-util|futures-executor|async-executor)"' Cargo.lock
+0
+```
 
 ### 测试与诊断工具
 
 ```bash
-cargo test --release --workspace        # 15 个测试，不需要网卡 / root
+cargo test --release --workspace        # 17 个测试，不需要网卡 / root
 ```
 
 | crate | 测试内容 |
 |---|---|
 | `rt`（7 个） | 用 `Runtime::run_offline()`（只跑 executor + timer，不驱动网卡）：sleep 按 deadline 顺序醒来且不早到；Mailbox 顺序交接；poll 期间自唤醒 1000 次不丢；**过期 waker 不会唤醒复用同一槽位的新任务**（做过变异测试：去掉代数检查后该测试失败）；drop runtime 时释放未完成 task 持有的资源（对应 mbuf 归还）；取消的 sleep 不误触发；死锁检测 |
-| `pingproto`（5 个） | 增量校验和与全量重算在 100 万组随机数据上逐位一致；帧布局与 IPv4 头校验和；reply 解析；ARP 原地应答 |
-| `pingkit` / `timerq`（3 个） | 直方图分桶边界与分位数精度；timer 堆顺序 |
+| `pingproto`（6 个） | 增量校验和与全量重算在 100 万组随机数据上逐位一致；帧布局与 IPv4 头校验和；reply 解析；**别的主机发来的 echo reply 即使 id / seq 合法也不会交给 session**；ARP 原地应答 |
+| `pingkit` / `timerq` / `dpdk`（4 个） | 直方图分桶边界与分位数精度；timer 堆顺序；主循环停顿检测器 |
 
-- `cargo build --release -p async-ping --features probe`：把段②拆成"分类+投递+wake / 回到 executor+出队 / poll 到恢复"三个子段打印（诊断用，默认关闭）。
-- `scripts/report.py --a <A.json> --b <B.json> [--c <C.json>...]`：从运行结果生成 `docs/REPORT.md` 里的表格。
+- `cargo build --release -p async-ping -p raw-ping --features probe`（诊断用，默认关闭，会多几次时钟读取）：
+  把段②拆成"分类+投递+wake / 回到 executor+出队 / poll 到恢复"，把段①拆成"取 mbuf / 写包 / tx_burst"，并按发送队列位置统计慢 `tx_burst`。
+- `scripts/make_report.py`：从 `logs/` 下的 JSON 重新生成 `docs/REPORT.md` 里的全部表格（主考核、ABBA、A 对 C、probe）。
 
 ## 4. 测量方法
 
@@ -115,14 +173,20 @@ cargo test --release --workspace        # 15 个测试，不需要网卡 / root
 
 | | A | B |
 |---|---|---|
-| **T0** | `send()` 入口（共用的 `Sender::send` 第一行） | 循环判定"该发了"后调用同一个 `Sender::send` 的第一行 |
+| **T0** | `send()` 的第一行（早于向 runtime 查找端口） | 循环里 `record(上一个 reply)` 之后、调用发送函数之前 |
 | **T1** | `tx_burst` 返回（同一函数内） | 同左 |
 | **T2** | `rx_burst` 返回（runtime 主循环） | `rx_burst` 返回（B 的循环）；同一批包共用一个 T2 |
 | **T3** | task 从 `mailbox.recv().await` 恢复后的第一行 | 状态机拿到 reply、可以开始算延迟的那一刻 |
 
 - **进程内耗时 = (T1 − T0) + (T3 − T2)**（排名指标）；端到端 = T3 − T0。
 - **sleep 误差** = timer 发现到期的时刻 − deadline；**段③** = 发现到期 → 下一个 T0。
+  SPEC 的"段③ = sleep 到期 → 下一个 T0"里，"到期"也可以理解成 deadline 本身，所以另报一行 **deadline → 下一个 T0**（= sleep 误差 + 段③），两种读法都覆盖。
 - 按 SPEC 的 loop 形状，样本在 sleep **之后**的 `record(reply)` 处记录，reply 的 mbuf 在 sleep 期间一直被持有。
+- **B 的 T0 为什么不取在"timer 判定到期"的那一刻**：A 的顺序是 sleep 返回 → `record(reply)` → `send()` 入口（T0），
+  record 不在 A 的段①里。B 若把 T0 提前到判定到期的那一刻，它的段①就会多包含 record 的开销，两边不再对齐。
+  所以两边的 T0 都紧挨在"发送这件事"之前，record 都落在段③里。
+- **运行起点定在启动后 1 ms**：创建 runtime、分配直方图、spawn 任务要花约 100 µs。早期版本把起点取在这些准备工作之前，
+  前几个 session 的初始 deadline 在主循环开始转之前就已过期，被记成"sleep 迟到 80–190 µs"，污染了 sleep 误差的最大值。
 
 ### 4.2 为什么用 `rdtscp` 而不是 `rdtsc`（关键发现）
 
@@ -133,15 +197,24 @@ B 从分类到 T3 只隔几条指令，而 **rdtsc 不是序列化指令**：乱
 改用 `rdtscp`（等前面所有指令完成、所有读都落地才读 TSC）后，B 的段② p50 从 10 ns 变成 120 ns，
 **A − B 的段② p50 从 120 ns 变成约 10 ns**。所以正式版的所有打点都用 `rdtscp`（每次约 16 ns，两边相同）。
 
-### 4.3 段①的写合并效应
+### 4.3 段①的尾巴来自网卡，不来自 runtime
 
-ENA 每发一个包，先执行一次 sfence（`wmb()`），再把 128 B 的 LLQ 条目推进写合并内存；
-sfence 要等上一个包的写合并缓冲排空（实测约 250 ns）。对端的中断合并让 reply 成批到达，
-多个 session 的 sleep 同时到期、发送扎堆：
-- B 的循环连续处理到期的 session，两次发送只隔几十纳秒 → 约 22% 的发送在段①里等 flush（约 300 ns）；
-- A 的两次发送之间隔着"record + 调度 + poll"（≥ 250 ns）→ flush 在被测段之外自然完成。
-- **在相同的发送间隔下，两边的段①完全相同**（报告里按间隔分档给出）。所以 A 在 p99 上"更快"并不是 runtime 更快，
-  而是硬件等待被计入的段不同。报告同时给出排名指标原值与这个拆解。
+两边的段①执行的是同一个函数，尾巴却不同。用 `probe` 构建把段①拆成三步后（A、B 相同）：
+"取 mbuf"和"写包"直到 p99.99 都是平的（各约 20 ns，含一次 16 ns 的时钟读取），**尾巴全部在 `tx_burst` 里**。它有两个来源：
+
+1. **连续发送**：ENA 每发一个包先执行一次 sfence（`wmb()`），再把 128 B 的 LLQ 条目推进写合并内存
+   （`drivers/net/ena/base/ena_eth_com.c`）。sfence 要等上一个包的写合并缓冲排空，约 250 ns。
+   对端的中断合并让 reply 成批到达，多个 session 的 sleep 同时到期、发送扎堆：
+   - B 连续处理到期的 session，发送间隔常小于 250 ns，这部分等待被计入 B 的段①（约 300 ns）；
+   - A 的两次发送之间隔着"record + 调度 + poll"（≥ 250 ns），等待在被测段之外自然完成。
+   - **在相同的发送间隔下，两边的段①完全相同**（报告按间隔分档给出）。
+2. **发送队列的位置**：即使间隔足够，仍有约 1% 的 `tx_burst` 要 150–270 ns。按"发送计数 % 32"统计，
+   慢的集中在余数为 3、7、11、…、31 的位置（占比 1%–6%，其余位置约 0.3%）：每 4 个条目（512 B 设备内存）一次，
+   并以 32 个条目（一个 4 KB 页）为周期起伏。A 和 B 的规律相同——这是网卡 / PCIe 一侧的行为，软件控制不了。
+
+**对读数的影响**：第 2 类慢发送的占比恰好在 1% 上下，所以段①的 p99 落在悬崖边上：占比 0.8% 时读数是 70 ns，
+1.2% 时是 150 ns，改动几条无关指令就可能翻转。因此 p99 的 A − B 要和 p90、p99.9 以及分档表一起看；
+runtime 自身的税看段②（p50 约 +10 ns，p99 约 +30 ns）。
 
 ### 4.4 A / B 交替多轮
 
@@ -166,6 +239,13 @@ sfence 要等上一个包的写合并缓冲排空（实测约 250 ns）。对端
   实际生效的超时落在 [10 ms, 10.1 ms]。**超时的请求计为丢失（timeouts）**，不进入延迟分布；session 照常 delay 后发下一个 seq。
 - **迟到**：超时之后才到的 reply，用每个 session 最近 4 个超时 seq 识别，计为 `late`，释放 mbuf，
   绝不会被当成新 seq 的回复。其他对不上的 echo reply 计为 `unexpected`。
+- **外来回复**：echo reply 必须"目的 IP 是我、源 IP 是对端"才会进入分发逻辑。实测遇到过别的主机发来的 echo reply（id=16509）；
+  这类包计为 `foreign` 并记下源 IP，**绝不交给 session**（否则只要 id / seq 碰巧合法，就会产生一个错误的延迟样本）。
+- **回复真伪核对**：`record` 时检查回复带回的发送时间戳是否等于我们发这个请求时写入的 T0，不符计为 `tsc-mismatch`（在被测段之外）。
+- **收包对账**：收到的每个包必须恰好落入一类，报告打印 `rx − (received + late + unexpected + foreign + other + arp)`，必须为 0。
+- **最大值尖刺的归因**：主循环自带停顿检测——一轮什么都没干的空轮询超过 1 µs、或收到包那一轮在取包之前超过 10 µs，
+  就记为一次"被外部打断"。A 和 B 的次数几乎相同（约每秒 216 次、累计占 0.065%，平均 3 µs），sleep 误差与进程内耗时的最大值都能对上其中最长的一次，
+  说明这些尖刺来自虚拟机宿主机而不是程序本身。
 - **对账**：报告里打印 `sent − received − timeouts − in-flight-at-end`，必须为 0；丢包 = timeouts，其中多少最终迟到收到也一并给出。
   用 `--timeout-us 150`（比 RTT 还短）做过压力验证：两边都是 timeouts = late、对账为 0、零泄漏。
 - **AWS 静默丢包的证据**：报告给出 ENA 的 `bw/pps/conntrack/linklocal_allowance_exceeded` 在本次运行中的增量。
@@ -190,6 +270,8 @@ scripts/run.sh C --duration-sec 60                     # 系统 ping
 scripts/ab.sh 3 60                                     # A/B 交替 3 对，每轮 60 秒
 ```
 
+- 也可以不经过脚本，在仓库根目录直接运行可执行文件（网卡参数自动从 `config/nic.env` 读取；网卡需已 `scripts/bind.sh`）：
+  `sudo target/release/async-ping --delay-us 500 --duration-sec 60`
 - `run.sh` 会自动：重新绑定网卡（重启后网卡会回到内核）、增量编译、以 root 运行（无 IOMMU 时 DPDK 需要读物理地址）、
   把输出写入 `logs/<A|B>-<时间>.log`，报告写入同名 `.json`。
 - A / B 的参数：`--delay-us`、`--duration-sec`（必填），`--sessions`（默认 64）、`--payload`（默认 64）、
@@ -235,4 +317,4 @@ PEER_MAC=06:ff:fd:b6:f0:cd # ← 对端 MAC
 
 ## 10. 提交方式
 
-以 GitHub 仓库链接或 zip 包的形式交给联系人（二者内容相同）。
+公开仓库：<https://github.com/Chen-Shuai-CS/dpdk-async-ping>（也可以打包成 zip 交给联系人，内容相同）。

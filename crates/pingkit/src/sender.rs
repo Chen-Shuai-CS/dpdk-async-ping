@@ -12,6 +12,20 @@ pub struct Stamp {
     /// 诊断：距离上一次发送（上一个 T1）多久。ENA 每次发送前有一次 sfence，
     /// 要等上一个包的写合并缓冲排空，所以背靠背的发送段①会明显更长。
     pub since_prev_tx: u64,
+    /// 诊断（`probe` 特性）：段①的三个子步骤
+    #[cfg(feature = "probe")]
+    pub probe: SendProbe,
+}
+
+/// 诊断（`probe` 特性）：把段①拆成"取 mbuf / 写包 / tx_burst"，并记下这是第几次发送（≈ 发送队列的位置）。
+/// 每个子步骤都多含一次约 16 ns 的时钟读取，所以 probe 构建的段①绝对值偏大，只用来看尾巴落在哪一步。
+#[cfg(feature = "probe")]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SendProbe {
+    pub alloc: u64,
+    pub build: u64,
+    pub tx: u64,
+    pub ring_slot: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,25 +41,51 @@ pub struct Sender {
     pool: &'static Mempool,
     tmpl: EchoTemplate,
     last_t1: std::cell::Cell<u64>,
+    #[cfg(feature = "probe")]
+    count: std::cell::Cell<u64>,
 }
 
 impl Sender {
     pub fn new(pool: &'static Mempool, tmpl: EchoTemplate) -> Sender {
-        Sender { pool, tmpl, last_t1: std::cell::Cell::new(0) }
+        Sender {
+            pool,
+            tmpl,
+            last_t1: std::cell::Cell::new(0),
+            #[cfg(feature = "probe")]
+            count: std::cell::Cell::new(0),
+        }
     }
 
-    /// 取 mbuf → 写入模板、id、seq、当前 TSC、增量校验和 → tx_burst（1 个包，一次 doorbell）。
+    /// 取 mbuf → 写入模板、id、seq、T0、增量校验和 → tx_burst（1 个包，一次 doorbell）→ 读 T1。
+    ///
+    /// `t0` 由调用者在**决定发送的那一刻**读取并传入（SPEC §7）：
+    /// A 在 `send()` 的第一行读（早于向 runtime 查找端口），B 在循环判定该发之后、调用本函数之前读。
+    /// 这样两边的段①覆盖的是语义相同的一段，A 为了发包而经过 runtime 的那一步也被计入。
     #[inline(always)]
-    pub fn send(&self, port: &Port, id: u16, seq: u16) -> Result<Stamp, SendError> {
-        let t0 = rdtsc();
+    pub fn send(&self, port: &Port, t0: u64, id: u16, seq: u16) -> Result<Stamp, SendError> {
         let Some(mut m) = self.pool.alloc() else { return Err(SendError::NoMbuf) };
+        #[cfg(feature = "probe")]
+        let ta = rdtsc();
         m.set_len(self.tmpl.len());
         self.tmpl.write_request(m.data_mut(), id, seq, t0);
+        #[cfg(feature = "probe")]
+        let tb = rdtsc();
         match port.tx(m) {
             Ok(()) => {
                 let t1 = rdtsc();
                 let since_prev_tx = t0.saturating_sub(self.last_t1.replace(t1));
-                Ok(Stamp { t0, t1, since_prev_tx })
+                Ok(Stamp {
+                    t0,
+                    t1,
+                    since_prev_tx,
+                    #[cfg(feature = "probe")]
+                    probe: SendProbe {
+                        alloc: ta - t0,
+                        build: tb - ta,
+                        tx: t1 - tb,
+                        ring_slot: (self.count.replace(self.count.get() + 1) % 32) as u8,
+                    },
+                })
             }
             Err(m) => {
                 drop(m);

@@ -16,6 +16,8 @@ pub struct Reply {
     #[allow(dead_code)]
     pub mbuf: Mbuf,
     pub t2: u64,
+    /// 回复里带回的、我们发送时写入的 TSC；record 时用来核对它确实是这个请求的应答
+    pub tx_tsc: u64,
 }
 
 /// `wait_reply` 超时。
@@ -75,6 +77,7 @@ pub struct Shared {
     pub stopping: Cell<bool>,
     pub exit_reason: RefCell<String>,
     pub my_ip: [u8; 4],
+    pub peer_ip: [u8; 4],
     pub my_mac: [u8; 6],
     pub live: Arc<Live>,
     /// 诊断：最近一次 Mailbox::put（含 wake）返回的时刻
@@ -95,6 +98,7 @@ impl Shared {
         tx_retry: u64,
         end: u64,
         my_ip: [u8; 4],
+        peer_ip: [u8; 4],
         my_mac: [u8; 6],
         live: Arc<Live>,
     ) -> Shared {
@@ -109,6 +113,7 @@ impl Shared {
             stopping: Cell::new(false),
             exit_reason: RefCell::new("到达 --duration-sec，停止发送并等在途请求收尾".into()),
             my_ip,
+            peer_ip,
             my_mac,
             live,
             #[cfg(feature = "probe")]
@@ -134,8 +139,8 @@ impl rt::Driver for IcmpDriver<'_> {
     #[inline]
     fn on_packet(&self, mut m: Mbuf, t2: u64, port: &Port) {
         let sh = &*self.sh;
-        match classify(m.data(), sh.my_ip) {
-            Rx::EchoReply { id, seq, .. } => {
+        match classify(m.data(), sh.my_ip, sh.peer_ip) {
+            Rx::EchoReply { id, seq, tx_tsc } => {
                 let Some(f) = sh.flows.get(id as usize) else {
                     let mut st = sh.stats.borrow_mut();
                     st.c.unexpected += 1;
@@ -144,7 +149,7 @@ impl rt::Driver for IcmpDriver<'_> {
                 };
                 if f.expect.get() == Some(seq) {
                     f.expect.set(None);
-                    if f.mailbox.put(Ok(Reply { mbuf: m, t2 })).is_err() {
+                    if f.mailbox.put(Ok(Reply { mbuf: m, t2, tx_tsc })).is_err() {
                         sh.stats.borrow_mut().c.unexpected += 1; // 不应发生：信箱里已有未取走的东西
                     }
                     #[cfg(feature = "probe")]
@@ -158,10 +163,21 @@ impl rt::Driver for IcmpDriver<'_> {
                     st.note_anomaly(format_args!("unexpected：id={id} seq={seq}，该 session 正在等 {expect:?}"));
                 }
             }
+            Rx::ForeignEchoReply { src, id, seq } => {
+                let mut st = sh.stats.borrow_mut();
+                st.c.foreign += 1;
+                st.note_anomaly(format_args!(
+                    "foreign：来自 {}.{}.{}.{} 的 echo reply（不是对端），id={id} seq={seq}，已丢弃",
+                    src[0], src[1], src[2], src[3]
+                ));
+            }
             Rx::ArpRequest => {
                 arp_reply_in_place(m.data_mut(), sh.my_mac, sh.my_ip);
+                let mut st = sh.stats.borrow_mut();
                 if port.tx(m).is_ok() {
-                    sh.stats.borrow_mut().c.arp_replies += 1;
+                    st.c.arp_replies += 1;
+                } else {
+                    st.c.other_rx += 1; // 没能应答：仍要落入某一类，保证收包对账
                 }
             }
             Rx::Other => sh.stats.borrow_mut().c.other_rx += 1,
@@ -171,7 +187,7 @@ impl rt::Driver for IcmpDriver<'_> {
     /// 维护节拍（与 B 相同）：DPDK timer / TX 回收 / 发布计数 → 超时扫描 → 停止判定。
     fn on_tick(&self, now: u64, port: &Port) -> bool {
         let sh = &*self.sh;
-        maintain(self.eal, port, &sh.stats.borrow(), &sh.live);
+        maintain(self.eal, port, &mut sh.stats.borrow_mut(), &sh.live);
         for f in sh.flows.iter() {
             if let Some(seq) = f.expect.get() {
                 if now >= f.timeout_at.get() {

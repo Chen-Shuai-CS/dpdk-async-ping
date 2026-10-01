@@ -14,8 +14,7 @@ dpdk = { path = "../dpdk" }
 pingproto = { path = "../pingproto" }
 pingkit = { path = "../pingkit" }
 rt = { path = "../rt" }
-clap = { version = "4", features = ["derive", "env"] }
 
 [features]
 # 诊断：把段②拆成三个子段打印（见 driver.rs / main.rs 中的 cfg(feature = "probe")）
-probe = ["rt/probe"]
+probe = ["rt/probe", "pingkit/probe"]

@@ -20,6 +20,10 @@ pub struct Counters {
     pub late: u64,
     /// id 越界、或 seq 对不上任何在途/已超时请求的 echo reply
     pub unexpected: u64,
+    /// 源 IP 不是对端的 echo reply：不是对我们任何请求的应答，绝不交给 session
+    pub foreign: u64,
+    /// 回复里带回的发送时间戳 ≠ 我们发这个请求时写入的 T0（重复包 / 损坏 / 伪造）
+    pub tsc_mismatch: u64,
     /// 其他与本程序无关的帧（非 IPv4/ARP、不是给我的……）
     pub other_rx: u64,
     /// 回答过的 ARP request
@@ -47,11 +51,24 @@ pub struct Stats {
     pub seg3: Hist,
     /// sleep 误差：timer 发现到期的时刻 − deadline
     pub sleep_err: Hist,
+    /// deadline → 下一个 T0（= sleep 误差 + 段③；"段③"的另一种读法）
+    pub wake_total: Hist,
+    /// 诊断：每次维护节拍里 `rte_timer_manage`（ENA watchdog）的耗时、整个维护动作的耗时
+    pub house_timer: Hist,
+    pub house_total: Hist,
+    /// 主循环空转停顿（见 `dpdk::tsc::StallWatch`），结束时由调用方填入
+    pub stalls: dpdk::tsc::StallWatch,
     /// 诊断：段① 按"距上一次发送多久"分档：<100 ns / 100–250 / 250–500 / 500 ns–2 µs / ≥2 µs。
     /// ENA 每次发送前有一次 sfence，要等上一个包的写合并缓冲排空，所以间隔越短段①越长。
     pub seg1_by_gap: [Hist; 5],
     /// 分档边界（TSC 周期），见 [`Stats::with_hz`]
     pub gap_edges: [u64; 4],
+    /// 诊断（`probe` 特性）：段①的子步骤 [取 mbuf, 写包, tx_burst]，只统计距上次发送 ≥ 250 ns 的发送
+    #[cfg(feature = "probe")]
+    pub probe_send: [Hist; 3],
+    /// 诊断（`probe` 特性）：按"发送计数 % 32"（≈ LLQ 条目在 4 KB 页内的位置）统计 [总数, tx_burst 慢的次数]
+    #[cfg(feature = "probe")]
+    pub probe_slot: [[u64; 2]; 32],
     /// 非空 rx_burst 的包数分布（下标 = 一次收到几个包）
     pub burst_sizes: [u64; RX_BURST_MAX + 1],
     pub c: Counters,
@@ -60,6 +77,12 @@ pub struct Stats {
 }
 
 pub const ANOMALY_LOG_MAX: usize = 16;
+
+/// 主循环停顿的判定阈值（见 `dpdk::tsc::StallWatch`）：
+/// 一轮什么都没干的空轮询正常只要几十纳秒，超过 1 µs 就说明被外部打断了；
+/// 收到包的那一轮，取包前超过 10 µs 也算（收一批包连同回填正常只要几微秒以内）。
+pub const STALL_THRESHOLD_NS: u64 = 1_000;
+pub const STALL_RX_THRESHOLD_NS: u64 = 10_000;
 
 impl Default for Stats {
     fn default() -> Self {
@@ -70,7 +93,15 @@ impl Default for Stats {
             e2e: Hist::default(),
             seg3: Hist::default(),
             sleep_err: Hist::default(),
+            wake_total: Hist::default(),
+            house_timer: Hist::default(),
+            house_total: Hist::default(),
+            stalls: dpdk::tsc::StallWatch::default(),
             seg1_by_gap: Default::default(),
+            #[cfg(feature = "probe")]
+            probe_send: Default::default(),
+            #[cfg(feature = "probe")]
+            probe_slot: [[0; 2]; 32],
             gap_edges: [260, 650, 1_300, 5_200], // 100/250/500/2000 ns @ 2.6 GHz；with_hz 按实际频率重设
             burst_sizes: [0; RX_BURST_MAX + 1],
             c: Counters::default(),
@@ -93,16 +124,63 @@ impl Stats {
         self.seg1.record(s1);
         let bucket = self.gap_edges.iter().take_while(|&&e| s.since_prev_tx >= e).count();
         self.seg1_by_gap[bucket].record(s1);
+        #[cfg(feature = "probe")]
+        if bucket >= 2 {
+            // 排除"距上次发送 < 250 ns"的发送：那一类的写合并等待已由上面的分档单独统计
+            let p = s.probe;
+            self.probe_send[0].record(p.alloc);
+            self.probe_send[1].record(p.build);
+            self.probe_send[2].record(p.tx);
+            let slot = &mut self.probe_slot[p.ring_slot as usize];
+            slot[0] += 1;
+            if p.tx > self.gap_edges[1] / 2 {
+                slot[1] += 1; // tx_burst > 125 ns（正常约 35 ns + 16 ns 时钟读取）
+            }
+        }
         self.seg2.record(s2);
         self.inproc.record(s1 + s2);
         self.e2e.record(t3.saturating_sub(s.t0));
     }
 
     /// 一次 sleep 结束：deadline、timer 发现到期的时刻、随后的下一个 T0。
+    ///
+    /// SPEC 的"段③ = sleep 到期 → 下一个 T0"有两种读法，两种都记录：
+    /// - "到期" = timer 发现到期的那一刻 → `seg3`（另有 `sleep_err` = 发现 − deadline）；
+    /// - "到期" = deadline 本身 → `wake_total` = `sleep_err` + `seg3`。
     #[inline]
     pub fn on_wake(&mut self, deadline: u64, detected: u64, t0_next: u64) {
         self.sleep_err.record(detected.saturating_sub(deadline));
         self.seg3.record(t0_next.saturating_sub(detected));
+        self.wake_total.record(t0_next.saturating_sub(deadline));
+    }
+
+    /// 在 record(reply) 时核对：回复带回的时间戳必须等于我们发这个请求时写入的 T0。
+    /// 放在 sleep 之后，不在任何被测段里。
+    #[inline]
+    pub fn verify_echo(&mut self, s: Stamp, echoed_tsc: u64, id: u16, seq: u16) {
+        if echoed_tsc != s.t0 {
+            self.c.tsc_mismatch += 1;
+            self.note_anomaly(format_args!(
+                "tsc_mismatch：id={id} seq={seq}，回复带回的 TSC={echoed_tsc}，我们写入的 T0={}",
+                s.t0
+            ));
+        }
+    }
+
+    /// `probe` 构建的附加诊断文本。
+    pub fn probe_notes(&self) -> Vec<String> {
+        #[cfg(feature = "probe")]
+        {
+            let s: Vec<String> = self
+                .probe_slot
+                .iter()
+                .enumerate()
+                .map(|(i, v)| format!("{i}:{:.2}%", 100.0 * v[1] as f64 / v[0].max(1) as f64))
+                .collect();
+            vec![format!("[probe] tx_burst > 125 ns 的占比，按「发送计数 % 32」分（32 个 LLQ 条目 = 一个 4 KB 页）：{}", s.join(" "))]
+        }
+        #[cfg(not(feature = "probe"))]
+        Vec::new()
     }
 
     /// 记录一个异常包（冷路径）：计数由调用方负责，这里只保存前 16 条明细用于事后解释。
@@ -128,11 +206,20 @@ impl Stats {
             ("end-to-end T3−T0", &self.e2e),
             ("seg③ wake→next T0", &self.seg3),
             ("sleep error", &self.sleep_err),
+            ("deadline→next T0 (误差+③)", &self.wake_total),
             ("  (诊断) seg① 距上次发送<100ns", &self.seg1_by_gap[0]),
             ("  (诊断) seg① 100–250ns", &self.seg1_by_gap[1]),
             ("  (诊断) seg① 250–500ns", &self.seg1_by_gap[2]),
             ("  (诊断) seg① 500ns–2µs", &self.seg1_by_gap[3]),
             ("  (诊断) seg① ≥2µs", &self.seg1_by_gap[4]),
+            #[cfg(feature = "probe")]
+            ("  (probe) ①取 mbuf", &self.probe_send[0]),
+            #[cfg(feature = "probe")]
+            ("  (probe) ①写包", &self.probe_send[1]),
+            #[cfg(feature = "probe")]
+            ("  (probe) ①tx_burst", &self.probe_send[2]),
+            ("  (诊断) 维护: rte_timer_manage", &self.house_timer),
+            ("  (诊断) 维护: 整个节拍", &self.house_total),
         ]
         .into_iter()
         .map(|(name, h)| MetricRow::from_hist(name, h, hz))
@@ -192,6 +279,24 @@ pub struct Report {
     pub exit_reason: String,
     /// 异常包明细（最多 16 条）
     pub anomalies: Vec<String>,
+    /// `probe` 构建的附加诊断（普通构建为空）
+    pub probe_notes: Vec<String>,
+    /// 主循环空转停顿（空轮询间隔超过阈值）：次数、累计时长、最长一次
+    pub stalls: StallSummary,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct StallSummary {
+    /// 空轮询停顿
+    pub threshold_ns: u64,
+    pub count: u64,
+    pub total_ns: u64,
+    pub max_ns: u64,
+    /// 取包前停顿
+    pub rx_threshold_ns: u64,
+    pub rx_count: u64,
+    pub rx_total_ns: u64,
+    pub rx_max_ns: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -217,14 +322,21 @@ impl Report {
             self.tsc_hz as f64 / 1e9
         );
         println!(
-            "sent {}  received {}  timeouts {}  late {}  in-flight-at-end {}  unexpected {}  other {}  arp-replied {}  tx-full {}  no-mbuf {}",
-            c.sent, c.received, c.timeouts, c.late, c.in_flight_at_end, c.unexpected, c.other_rx, c.arp_replies,
-            c.tx_full, c.no_mbuf
+            "sent {}  received {}  timeouts {}  late {}  in-flight-at-end {}  unexpected {}  foreign {}  tsc-mismatch {}  other {}  arp-replied {}  tx-full {}  no-mbuf {}",
+            c.sent, c.received, c.timeouts, c.late, c.in_flight_at_end, c.unexpected, c.foreign, c.tsc_mismatch,
+            c.other_rx, c.arp_replies, c.tx_full, c.no_mbuf
         );
         let lost = c.sent as i64 - c.received as i64 - c.timeouts as i64 - c.in_flight_at_end as i64;
         println!(
             "对账：sent − received − timeouts − in-flight = {lost}（应为 0）；丢包 = timeouts = {}（其中 {} 个迟到收到）",
             c.timeouts, c.late
+        );
+        // 收到的每个包必须恰好落入一类
+        let rx_diff = c.rx_pkts as i64
+            - (c.received + c.late + c.unexpected + c.foreign + c.other_rx + c.arp_replies) as i64;
+        println!(
+            "收包对账：rx {} − (received + late + unexpected + foreign + other + arp) = {rx_diff}（应为 0）",
+            c.rx_pkts
         );
         println!();
         println!(
@@ -239,12 +351,27 @@ impl Report {
         }
         println!();
         let total: u64 = self.burst_sizes.iter().map(|(_, n)| n).sum();
-        let bs: Vec<String> = self
-            .burst_sizes
-            .iter()
-            .map(|(k, n)| format!("{k}:{:.2}%", 100.0 * *n as f64 / total.max(1) as f64))
-            .collect();
-        println!("rx_burst 包数分布（非空 burst）：{}", bs.join("  "));
+        let pct = |n: u64| 100.0 * n as f64 / total.max(1) as f64;
+        let bs: Vec<String> =
+            self.burst_sizes.iter().filter(|(_, n)| pct(*n) >= 0.01).map(|(k, n)| format!("{k}:{:.2}%", pct(*n))).collect();
+        let rare: u64 = self.burst_sizes.iter().filter(|(_, n)| pct(*n) < 0.01).map(|(_, n)| n).sum();
+        let biggest = self.burst_sizes.iter().map(|(k, _)| *k).max().unwrap_or(0);
+        println!(
+            "rx_burst 包数分布（非空 burst）：{}  其余更大的 burst 共 {rare} 次（最大一次 {biggest} 个包）",
+            bs.join("  ")
+        );
+        let s = &self.stalls;
+        println!(
+            "主循环被外部打断：空轮询 > {} µs 共 {} 次（累计 {:.1} ms，最长 {:.1} µs）；取包前 > {} µs 共 {} 次（累计 {:.1} ms，最长 {:.1} µs）",
+            s.threshold_ns / 1000,
+            s.count,
+            s.total_ns as f64 / 1e6,
+            s.max_ns as f64 / 1e3,
+            s.rx_threshold_ns / 1000,
+            s.rx_count,
+            s.rx_total_ns as f64 / 1e6,
+            s.rx_max_ns as f64 / 1e3
+        );
         let p = &self.port;
         println!(
             "port: ipackets {}  opackets {}  imissed {}  ierrors {}  oerrors {}  rx_nombuf {}",
@@ -264,6 +391,9 @@ impl Report {
             if leak == 0 { "✔" } else { "✘" }
         );
         println!("退出原因：{}", self.exit_reason);
+        for n in &self.probe_notes {
+            println!("{n}");
+        }
         if !self.anomalies.is_empty() {
             println!("异常包明细（最多 16 条）：");
             for a in &self.anomalies {
@@ -324,6 +454,17 @@ impl Report {
             mbuf,
             exit_reason,
             anomalies: stats.anomalies.clone(),
+            probe_notes: stats.probe_notes(),
+            stalls: StallSummary {
+                threshold_ns: STALL_THRESHOLD_NS,
+                count: stats.stalls.count,
+                total_ns: cycles_to_ns(stats.stalls.total, tsc_hz),
+                max_ns: cycles_to_ns(stats.stalls.max, tsc_hz),
+                rx_threshold_ns: STALL_RX_THRESHOLD_NS,
+                rx_count: stats.stalls.rx_count,
+                rx_total_ns: cycles_to_ns(stats.stalls.rx_total, tsc_hz),
+                rx_max_ns: cycles_to_ns(stats.stalls.rx_max, tsc_hz),
+            },
         }
     }
 

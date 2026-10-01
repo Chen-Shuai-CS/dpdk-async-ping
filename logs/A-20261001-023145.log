@@ -1,0 +1,44 @@
+EAL: No free 1048576 kB hugepages reported on node 0
+ENA_DRIVER: ena_get_metrics_entries(): 0x6 customer metrics are supported
+[A async   60.0s] sent    5363785  recv    5363784  timeouts 0  late 0  89335 req/s
+[A async  120.1s] sent   11062864  recv   11062836  timeouts 0  late 0  94922 req/s
+[A async  180.1s] sent   16879798  recv   16879798  timeouts 0  late 0  96877 req/s
+[A async  240.2s] sent   22696891  recv   22696891  timeouts 0  late 0  96888 req/s
+[A async  300.2s] sent   28213037  recv   28213027  timeouts 0  late 0  91872 req/s
+[A async  360.2s] sent   33440941  recv   33440931  timeouts 0  late 0  87071 req/s
+[A async  420.3s] sent   38668643  recv   38668590  timeouts 0  late 0  87071 req/s
+[A async  480.3s] sent   44295257  recv   44295195  timeouts 0  late 0  93716 req/s
+[A async  540.4s] sent   49505740  recv   49505740  timeouts 0  late 0  86778 req/s
+ENA_DRIVER: ena_rx_queue_release(): Rx queue 0:0 released
+ENA_DRIVER: ena_tx_queue_release(): Tx queue 0:0 released
+
+==================== A · async-ping（自研 rt runtime） ====================
+sessions 64  delay 500 µs  duration 600 s (实际 600.01 s)  payload 64 B  timeout 10000 µs  TSC 2.600 GHz
+sent 54611404  received 54611404  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  foreign 1  tsc-mismatch 0  other 2  arp-replied 10  tx-full 0  no-mbuf 0
+对账：sent − received − timeouts − in-flight = 0（应为 0）；丢包 = timeouts = 0（其中 0 个迟到收到）
+收包对账：rx 54611417 − (received + late + unexpected + foreign + other + arp) = 0（应为 0）
+
+metric (ns)                       count      min     mean      p50      p90      p99    p99.9   p99.99        max
+in-process ①+②  [排名指标]         54611404       60      197      180      250      360      460      601      83780
+seg① send  T1−T0               54611404       40       54       50       60       70      170      280      83560
+seg② recv  T3−T2               54611404       20      143      130      190      300      390      521      31710
+end-to-end T3−T0               54611404    52300   202974   232369   248123   252849   256000   290658     504110
+seg③ wake→next T0              54611404       30      138       70      320      730     1141     1606      20640
+sleep error                    54611404        0       38       10      110      300      809     2701      82450
+deadline→next T0 (误差+③)        54611404       30      176       70      429      809     1400     3236      83650
+  (诊断) seg① 距上次发送<100ns               0        0        0        0        0        0        0        0          0
+  (诊断) seg① 100–250ns               157       60       68       60       70      190      280      280        280
+  (诊断) seg① 250–500ns          15218038       40       55       50       60      160      200      310      83560
+  (诊断) seg① 500ns–2µs          28745326       40       54       50       60       70      160      240      16770
+  (诊断) seg① ≥2µs               10647883       40       54       50       60       70      160      230       6280
+  (诊断) 维护: rte_timer_manage     5998851       20       25       20       30       30       40      883       3930
+  (诊断) 维护: 整个节拍                 5998851       40      278       60      809     1240     1461     1876      19930
+
+rx_burst 包数分布（非空 burst）：1:77.06%  2:18.76%  3:3.65%  4:0.53%  其余更大的 burst 共 1069 次（最大一次 32 个包）
+主循环被外部打断：空轮询 > 1 µs 共 129686 次（累计 381.1 ms，最长 148.7 µs）；取包前 > 10 µs 共 118 次（累计 2.2 ms，最长 127.3 µs）
+port: ipackets 54611417  opackets 54611520  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
+AWS allowance（本次运行增量）：bw_in_allowance_exceeded=0  bw_out_allowance_exceeded=0  pps_allowance_exceeded=0  conntrack_allowance_exceeded=0  linklocal_allowance_exceeded=0
+mbuf：pool 8191，初值 avail 8191（端口启动后 7168），关停后 avail 8191 → 泄漏 0 ✔
+退出原因：到达 --duration-sec，停止发送并等在途请求收尾
+异常包明细（最多 16 条）：
+  [tsc 150260017248276] foreign：来自 13.214.173.166 的 echo reply（不是对端），id=16509 seq=14618，已丢弃

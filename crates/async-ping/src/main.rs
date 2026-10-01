@@ -13,9 +13,8 @@
 
 mod driver;
 
-use clap::Parser;
 use dpdk::tsc::ns_to_cycles;
-use driver::{IcmpDriver, Reply, Shared};
+use driver::{IcmpDriver, Reply, Shared, Timeout};
 use pingkit::live::{self, Live};
 use pingkit::stats::{port_summary, Report};
 use pingkit::{rdtsc, Args, Dataplane, SendError, Stamp};
@@ -27,10 +26,12 @@ use std::time::{Duration, Instant};
 const TICK_NS: u64 = 100_000;
 const TX_RETRY_NS: u64 = 1_000;
 
-/// 段①：调用与 B 相同的发送函数。成功后登记"在等 seq"。TX 环满等罕见情况下 sleep 1 µs 重试。
+/// 段①。**T0 = 本函数入口**（SPEC §7），在向 runtime 查找端口之前读取；
+/// 随后调用与 B 相同的发送函数。成功后登记"在等 seq"。TX 环满等罕见情况下 sleep 1 µs 重试。
 async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
     loop {
-        match with_port(|p| sh.sender.send(p, id, seq)) {
+        let t0 = rdtsc(); // T0
+        match with_port(|p| sh.sender.send(p, t0, id, seq)) {
             Ok(stamp) => {
                 sh.flows[id as usize].arm(seq, stamp.t0 + sh.timeout);
                 sh.stats.borrow_mut().c.sent += 1;
@@ -51,46 +52,62 @@ async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
     }
 }
 
-/// 一个 session。`first_deadline` 是初始相位（64 个 session 均匀错开在一个 delay 周期内）。
-async fn session(sh: Rc<Shared>, id: u16, first_deadline: u64) {
+/// 段②的后半：等 reactor 把 `seq` 的 reply 放进本 session 的信箱并唤醒本 task。
+/// 超时也从这里返回：维护节拍发现超时后，会往信箱里放一个 `Err(Timeout)`。
+async fn wait_reply(sh: &Shared, id: u16, seq: u16) -> Result<Reply, Timeout> {
     let flow = &sh.flows[id as usize];
-    let mut woke: SleepInfo = sleep_until(first_deadline).await;
-    let mut held: Option<(Reply, Stamp, u64)> = None;
-    let mut seq: u16 = 0;
-    loop {
-        // record(reply)：sleep 结束后才记录上一个样本并释放它的 mbuf（SPEC 的 loop 形状，与 B 相同）
-        if let Some((reply, stamp, t3)) = held.take() {
-            sh.stats.borrow_mut().on_reply(stamp, reply.t2, t3);
-            drop(reply);
-        }
-        if sh.stopping.get() {
-            break;
-        }
-        let stamp = send(&sh, id, seq).await;
-        sh.stats.borrow_mut().on_wake(woke.deadline, woke.fired_at, stamp.t0);
+    debug_assert!(flow.expect.get().is_none() || flow.expect.get() == Some(seq));
+    flow.mailbox.recv().await
+}
 
-        let r = flow.mailbox.recv().await; // wait_reply：reactor 把 reply 放进信箱并唤醒本 task
+/// sleep 之后才记录样本，并在这里释放 reply 的 mbuf（`reply` 在本函数结束时 Drop）。
+fn record(sh: &Shared, id: u16, seq: u16, stamp: Stamp, reply: Result<Reply, Timeout>, t3: u64) {
+    if let Ok(reply) = reply {
+        let mut st = sh.stats.borrow_mut();
+        st.on_reply(stamp, reply.t2, t3);
+        st.verify_echo(stamp, reply.tx_tsc, id, seq);
+    } // Err(Timeout)：已由 driver 计为丢失，不进入延迟分布
+}
+
+/// 一个 session。循环体与 SPEC §5 给出的形状逐行对应：
+///
+/// ```text
+/// send(seq).await;                    // T0 → T1，段①
+/// let reply = wait_reply(seq).await;  // T2 → T3，段②；超时也从这里返回
+/// sleep(delay).await;                 // 样本之外；期间持有 reply 的 mbuf
+/// record(reply);
+/// ```
+///
+/// `first_deadline` 是初始相位（session 均匀错开在一个 delay 周期内）。
+async fn session(sh: Rc<Shared>, id: u16, first_deadline: u64) {
+    let mut woke: SleepInfo = sleep_until(first_deadline).await;
+    let mut seq: u16 = 0;
+    while !sh.stopping.get() {
+        let stamp = send(&sh, id, seq).await; // T0 → T1
+        sh.stats.borrow_mut().on_wake(woke.deadline, woke.fired_at, stamp.t0); // 上一次 sleep 的误差与段③
+
+        let reply = wait_reply(&sh, id, seq).await; // T2 → T3
         let t3 = rdtsc(); // T3：本 task 从 wait_reply().await 恢复执行
-        if let Ok(reply) = r {
+        if let Ok(_r) = &reply {
             #[cfg(feature = "probe")]
             {
                 let (put, poll) = (sh.probe_put_done.get(), rt::probe::poll_start());
                 let mut p = sh.probe.borrow_mut();
-                p[0].record(put.saturating_sub(reply.t2));
+                p[0].record(put.saturating_sub(_r.t2));
                 p[1].record(poll.saturating_sub(put));
                 p[2].record(t3.saturating_sub(poll));
             }
             sh.stats.borrow_mut().c.received += 1;
-            held = Some((reply, stamp, t3));
-        } // Err(Timeout)：已由 driver 计数；照常 delay 后发下一个
+        }
 
-        woke = sleep_until(t3 + sh.delay).await; // 期间 `held` 持有 reply 的 mbuf
+        woke = sleep_until(t3 + sh.delay).await; // 期间 `reply`（及其 mbuf）一直被本 task 持有
+        record(&sh, id, seq, stamp, reply, t3);
         seq = seq.wrapping_add(1);
     }
 }
 
 fn main() {
-    let args = Args::parse();
+    let args = Args::load();
     live::install_signal_handlers();
     let dp = Dataplane::open(&args).unwrap_or_else(|e| {
         eprintln!("初始化失败：{e}");
@@ -103,7 +120,8 @@ fn main() {
 
     let n = args.sessions as usize;
     let delay = ns_to_cycles(args.delay_us * 1000, hz);
-    let start = rdtsc();
+    // 起点定在 1 ms 之后：下面的准备工作不应算进任何 session 的 sleep 误差（见 START_LEAD_NS）
+    let start = rdtsc() + ns_to_cycles(pingkit::house::START_LEAD_NS, hz);
     let sh = Rc::new(Shared::new(
         n,
         pingkit::Sender::new(dp.pool, dp.tmpl.clone()),
@@ -112,12 +130,19 @@ fn main() {
         ns_to_cycles(TX_RETRY_NS, hz),
         start + ns_to_cycles(args.duration_sec * 1_000_000_000, hz),
         dp.endpoints.src_ip,
+        dp.endpoints.dst_ip,
         dp.endpoints.src_mac,
         live.clone(),
     ));
 
     *sh.stats.borrow_mut() = pingkit::Stats::with_hz(hz);
-    let rt = Runtime::new(RuntimeConfig { max_tasks: n + 8, max_timers: 2 * n + 8, tick_cycles: ns_to_cycles(TICK_NS, hz) });
+    let rt = Runtime::new(RuntimeConfig {
+        max_tasks: n + 8,
+        max_timers: 2 * n + 8,
+        tick_cycles: ns_to_cycles(TICK_NS, hz),
+        stall_threshold_cycles: ns_to_cycles(pingkit::stats::STALL_THRESHOLD_NS, hz),
+        stall_rx_threshold_cycles: ns_to_cycles(pingkit::stats::STALL_RX_THRESHOLD_NS, hz),
+    });
     for i in 0..n {
         rt.spawn(session(sh.clone(), i as u16, start + delay * i as u64 / n as u64));
     }
@@ -136,6 +161,7 @@ fn main() {
     let exit_reason = if exit == rt::RunExit::AllTasksDone { exit_reason } else { format!("{exit_reason}（runtime 提前退出）") };
     sh.stats.borrow_mut().c.in_flight_at_end = sh.flows.iter().filter(|f| f.expect.get().is_some()).count() as u64;
     // 释放程序持有的所有 mbuf：drop runtime（丢弃所有未完成 task 及其持有的 reply）→ 清空信箱
+    sh.stats.borrow_mut().stalls = rt.stalls();
     drop(driver);
     drop(rt);
     for f in sh.flows.iter() {

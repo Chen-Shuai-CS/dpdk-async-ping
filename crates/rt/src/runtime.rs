@@ -2,7 +2,7 @@
 
 use crate::executor::Executor;
 use crate::timer::Timers;
-use dpdk::tsc::rdtsc;
+use dpdk::tsc::{rdtsc, StallWatch};
 use dpdk::{Mbuf, Port, RxBurst};
 use std::cell::{Cell, RefCell};
 use std::future::Future;
@@ -32,6 +32,10 @@ pub struct RuntimeConfig {
     pub max_timers: usize,
     /// 维护节拍（TSC 周期）
     pub tick_cycles: u64,
+    /// 主循环停顿的判定阈值（TSC 周期），见 `dpdk::tsc::StallWatch`：
+    /// 空轮询超过前者、或收到包那一轮在取包之前超过后者，就记为一次"被外部打断"
+    pub stall_threshold_cycles: u64,
+    pub stall_rx_threshold_cycles: u64,
 }
 
 /// `run` 为什么返回。
@@ -47,6 +51,7 @@ pub(crate) struct Core {
     pub(crate) exec: Executor,
     pub(crate) timers: RefCell<Timers>,
     port: Cell<*const Port>,
+    stalls: Cell<StallWatch>,
 }
 
 thread_local! {
@@ -111,6 +116,8 @@ pub struct Runtime {
     id: u16,
     core: Box<Core>,
     tick: u64,
+    stall_threshold: u64,
+    stall_rx_threshold: u64,
 }
 
 impl Runtime {
@@ -122,8 +129,11 @@ impl Runtime {
                 exec: Executor::new(id, cfg.max_tasks),
                 timers: RefCell::new(Timers::new(cfg.max_timers)),
                 port: Cell::new(std::ptr::null()),
+                stalls: Cell::new(StallWatch::default()),
             }),
             tick: cfg.tick_cycles,
+            stall_threshold: cfg.stall_threshold_cycles,
+            stall_rx_threshold: cfg.stall_rx_threshold_cycles,
         }
     }
 
@@ -134,6 +144,11 @@ impl Runtime {
 
     pub fn live_tasks(&self) -> usize {
         self.core.exec.live()
+    }
+
+    /// 最近一次 `run` 期间主循环被外部打断的统计（空轮询间隔超过阈值的次数 / 累计 / 最长）。
+    pub fn stalls(&self) -> StallWatch {
+        self.core.stalls.get()
     }
 
     /// 主循环（busy-poll，永不睡眠），直到所有 task 结束或 driver 请求退出。
@@ -151,7 +166,10 @@ impl Runtime {
         let _clear_port = ClearPort(core);
         let mut burst = RxBurst::new();
         core.exec.run_ready();
-        let mut next_tick = rdtsc() + self.tick;
+        let start = rdtsc();
+        let mut next_tick = start + self.tick;
+        let mut watch = StallWatch::new(self.stall_threshold, self.stall_rx_threshold, start);
+        let mut worked = true; // 上一次读时钟之后是否干过活（触发 timer / 维护）
         loop {
             // 1. poll-mode reactor
             let n = port.rx_burst(&mut burst);
@@ -162,21 +180,31 @@ impl Runtime {
                     driver.on_packet(m, t2, port);
                     core.exec.run_ready();
                 }
+                // 停顿检测（取包前）：放在处理完这批包之后，不插在 T2 与 T3 之间
+                watch.tick_rx(t2, worked);
+                worked = true;
             }
             // 2. timers
             let now = rdtsc(); // "timer 发现到期"的时刻
+            // 停顿检测（空轮询）：复用这次时钟读数。上一次读时钟之后什么都没干，间隔却很长 → 被外部打断
+            watch.tick(now, worked);
+            worked = false;
             let fired = core.timers.borrow_mut().fire(now);
             if fired > 0 {
+                worked = true;
                 core.exec.run_ready();
             }
             // 3. 维护节拍
             if now >= next_tick {
                 next_tick = now + self.tick;
+                worked = true;
                 if !driver.on_tick(now, port) {
+                    core.stalls.set(watch);
                     return RunExit::Aborted;
                 }
                 core.exec.run_ready();
                 if core.exec.live() == 0 {
+                    core.stalls.set(watch);
                     return RunExit::AllTasksDone;
                 }
             }

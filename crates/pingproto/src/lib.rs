@@ -70,8 +70,13 @@ pub fn checksum(data: &[u8]) -> u16 {
 /// 并预先算好其余所有字（常量部分）的反码和 `base_sum`。
 ///
 /// 每个包的校验和 = !fold(base_sum + id + seq + TSC 的 4 个字)。
-/// 这就是 RFC 1624 的思路：只把变化的字加进去，不重算整个包；而且因为反码加法满足交换律，
-/// 结果与全量重算逐位相同（单测交叉验证），不存在 RFC 1141 那种 0x0000/0xFFFF 的边界问题。
+///
+/// 这正是 RFC 1624 式 3 `HC' = ~(~HC + ~m + m')` 应用在"字段全为 0 的模板"上：
+/// 旧值 m = 0，`~m = 0xFFFF` 在反码加法里是 −0，加上它不改变结果，于是 `HC' = ~(~HC₀ + Σm')`，
+/// 而 `~HC₀` 就是这里预先算好的 `base_sum`。相比"在上一个包的校验和上增量更新"，
+/// 它不依赖上一个包的状态（64 个 session 共用一个模板），每包仍然只做 6 次加法。
+/// 因为反码加法满足交换律，结果与全量重算逐位相同（单测用 100 万组随机数据交叉验证），
+/// 不存在 RFC 1141 那种 0x0000 / 0xFFFF 的边界问题。
 #[derive(Clone)]
 pub struct EchoTemplate {
     frame: Vec<u8>,
@@ -148,8 +153,10 @@ impl EchoTemplate {
 /// 收到的帧是什么。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rx {
-    /// 发给我的 ICMP echo reply。`tx_tsc` 是对端原样带回的、我们发送时写入的 TSC。
+    /// **对端**发给我的 ICMP echo reply。`tx_tsc` 是对端原样带回的、我们发送时写入的 TSC。
     EchoReply { id: u16, seq: u16, tx_tsc: u64 },
+    /// 发给我的 ICMP echo reply，但源 IP **不是对端**：不是对我们任何请求的应答，绝不能交给 session。
+    ForeignEchoReply { src: [u8; 4], id: u16, seq: u16 },
     /// 问我 IP 的 ARP request —— 必须回答，否则对端不知道把 reply 发到哪个 MAC。
     ArpRequest,
     /// 其他一切（不是给我的、不认识的协议、畸形包）。
@@ -157,8 +164,12 @@ pub enum Rx {
 }
 
 /// 解析一个帧。只检查必要字段：不要对对端 IP 头的 TTL、identification 等做任何假设。
+///
+/// echo reply 必须同时满足"目的 IP 是我"和"源 IP 是对端"才算 [`Rx::EchoReply`]：
+/// 否则任何主机发给我们 IP 的 echo reply 只要碰巧带着某个 session 的 id 和它正在等的 seq，
+/// 就会被当成那个 session 的回复，产生一个错误的延迟样本。
 #[inline]
-pub fn classify(f: &[u8], my_ip: [u8; 4]) -> Rx {
+pub fn classify(f: &[u8], my_ip: [u8; 4], peer_ip: [u8; 4]) -> Rx {
     if f.len() < ETH_HDR + 20 {
         return Rx::Other;
     }
@@ -183,6 +194,9 @@ pub fn classify(f: &[u8], my_ip: [u8; 4]) -> Rx {
             }
             let id = u16::from_be_bytes([icmp[4], icmp[5]]);
             let seq = u16::from_be_bytes([icmp[6], icmp[7]]);
+            if ip[12..16] != peer_ip {
+                return Rx::ForeignEchoReply { src: [ip[12], ip[13], ip[14], ip[15]], id, seq };
+            }
             let mut t = [0u8; 8];
             t.copy_from_slice(&icmp[ICMP_HDR..ICMP_HDR + TSC_LEN]);
             Rx::EchoReply { id, seq, tx_tsc: u64::from_be_bytes(t) }

@@ -28,10 +28,21 @@ impl House {
     }
 }
 
-/// 两边共用的维护动作。
+/// 运行的"起点"定在现在之后这么久：让创建 runtime、分配直方图、spawn 任务等准备工作都在起点之前完成。
+/// 否则各 session 的初始相位 deadline 在主循环开始转之前就已经过去，
+/// 第一次 sleep 会被记成"迟到了上百微秒"，污染 sleep 误差的最大值（实测踩过这个坑）。
+pub const START_LEAD_NS: u64 = 1_000_000;
+
+/// 两边共用的维护动作。顺便给自己计时（每 100 µs 才多两次读时钟）：
+/// 维护期间主循环不收包、不查 timer，它的耗时直接决定 sleep 误差和"包在 RX 环里等待"的上限。
 #[inline(never)]
-pub fn maintain(eal: &Eal, port: &Port, stats: &Stats, live: &Live) {
+pub fn maintain(eal: &Eal, port: &Port, stats: &mut Stats, live: &Live) {
+    let t0 = dpdk::tsc::rdtsc();
     eal.timer_manage();
+    let t1 = dpdk::tsc::rdtsc();
     let _ = port.tx_done_cleanup(0);
     live.publish(stats);
+    let t2 = dpdk::tsc::rdtsc();
+    stats.house_timer.record(t1 - t0);
+    stats.house_total.record(t2 - t0);
 }

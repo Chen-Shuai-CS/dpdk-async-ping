@@ -3,7 +3,7 @@
 //! - 小于 256 的值精确记录（本机 256 周期 ≈ 98 ns）；
 //! - 更大的值每个 2 的幂区间分 128 个桶，相对误差 < 0.8%；
 //! - 记录一次：一次 lzcnt + 几次移位/加法 + 一次自增，在 T3 之后才记录，不进入被测段；
-//! - 计数用 u32：10 分钟约 7000 万样本，远小于 2^32。
+//! - 计数用 u64：单个桶永远不会溢出（u32 在 9 万样本/秒下约 66 小时就可能溢出）。每个直方图约 36 KB。
 
 const P: u32 = 8; // 精度位数
 const EXACT: u64 = 1 << P; // 256
@@ -13,7 +13,7 @@ const BUCKETS: usize = EXACT as usize + (MAX_MSB - P + 1) as usize * HALF as usi
 
 #[derive(Clone)]
 pub struct Hist {
-    counts: Box<[u32; BUCKETS]>,
+    counts: Box<[u64; BUCKETS]>,
     n: u64,
     min: u64,
     max: u64,
@@ -86,7 +86,7 @@ impl Hist {
         let rank = ((q * self.n as f64).ceil() as u64).clamp(1, self.n);
         let mut acc = 0u64;
         for (i, &c) in self.counts.iter().enumerate() {
-            acc += c as u64;
+            acc += c;
             if acc >= rank {
                 let (lo, hi) = bounds(i);
                 let mid = if hi - lo == 1 { lo } else { lo + (hi - lo) / 2 };

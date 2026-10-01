@@ -13,3 +13,7 @@ clap = { version = "4", features = ["derive", "env"] }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[features]
+# 诊断：把段①拆成 取 mbuf / 写包 / tx_burst，并按发送队列位置统计慢 tx_burst。默认关闭（会多两次时钟读取）。
+probe = []

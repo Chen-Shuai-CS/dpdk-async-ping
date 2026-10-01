@@ -8,12 +8,11 @@
 //! 与 A 共用：数据面初始化、发送函数（段①）、协议解析、TimerHeap、直方图、维护动作。
 //! 唯一的区别：状态转移由这个循环直接完成，不经过 Waker / 就绪队列 / poll。
 
-use clap::Parser;
-use dpdk::tsc::ns_to_cycles;
+use dpdk::tsc::{ns_to_cycles, StallWatch};
 use dpdk::{Mbuf, RxBurst};
 use pingkit::house::{maintain, House};
 use pingkit::live::{self, Live};
-use pingkit::stats::{port_summary, Report};
+use pingkit::stats::{port_summary, Report, STALL_RX_THRESHOLD_NS, STALL_THRESHOLD_NS};
 use pingkit::{rdtsc, Args, Dataplane, SendError, Sender, Stamp, Stats, TimerHeap};
 use pingproto::{arp_reply_in_place, classify, Rx};
 use std::sync::Arc;
@@ -37,6 +36,9 @@ enum State {
 struct Held {
     mbuf: Mbuf,
     stamp: Stamp,
+    seq: u16,
+    /// 回复里带回的、我们发送时写入的 TSC；record 时用来核对它确实是这个请求的应答
+    tx_tsc: u64,
     t2: u64,
     t3: u64,
 }
@@ -81,30 +83,40 @@ struct Raw {
 impl Raw {
     /// 第 1 步：收包。解析 → 查表 → 就地改状态。没有 waker、没有队列、没有 poll。
     #[inline(always)]
-    fn on_rx(&mut self) {
+    fn on_rx(&mut self) -> Option<u64> {
         let got = self.dp.port.rx_burst(&mut self.burst);
         if got == 0 {
-            return;
+            return None;
         }
         let t2 = rdtsc(); // T2：rx_burst 返回（同一批包共用这个 T2）
         self.stats.on_burst(got);
-        let (my_ip, my_mac) = (self.dp.endpoints.src_ip, self.dp.endpoints.src_mac);
+        let (my_ip, peer_ip, my_mac) = (self.dp.endpoints.src_ip, self.dp.endpoints.dst_ip, self.dp.endpoints.src_mac);
         while let Some(mut m) = self.burst.next() {
-            match classify(m.data(), my_ip) {
-                Rx::EchoReply { id, seq, .. } => self.on_reply(m, id, seq, t2),
+            match classify(m.data(), my_ip, peer_ip) {
+                Rx::EchoReply { id, seq, tx_tsc } => self.on_reply(m, id, seq, tx_tsc, t2),
+                Rx::ForeignEchoReply { src, id, seq } => {
+                    self.stats.c.foreign += 1;
+                    self.stats.note_anomaly(format_args!(
+                        "foreign：来自 {}.{}.{}.{} 的 echo reply（不是对端），id={id} seq={seq}，已丢弃",
+                        src[0], src[1], src[2], src[3]
+                    ));
+                }
                 Rx::ArpRequest => {
                     arp_reply_in_place(m.data_mut(), my_mac, my_ip);
                     if self.dp.port.tx(m).is_ok() {
                         self.stats.c.arp_replies += 1;
+                    } else {
+                        self.stats.c.other_rx += 1; // 没能应答：仍要落入某一类，保证收包对账
                     }
                 }
                 Rx::Other => self.stats.c.other_rx += 1, // m 在这里 drop，归还 mempool
             }
         }
+        Some(t2)
     }
 
     #[inline(always)]
-    fn on_reply(&mut self, m: Mbuf, id: u16, seq: u16, t2: u64) {
+    fn on_reply(&mut self, m: Mbuf, id: u16, seq: u16, tx_tsc: u64, t2: u64) {
         let Some(s) = self.sessions.get_mut(id as usize) else {
             self.stats.c.unexpected += 1;
             self.stats.note_anomaly(format_args!("unexpected：id={id} 超出 session 范围，seq={seq}"));
@@ -114,7 +126,7 @@ impl Raw {
             State::Waiting { seq: want, stamp, .. } if want == seq => {
                 let t3 = rdtsc(); // T3：reply 交到该 session 的状态机，可以开始算延迟
                 self.stats.c.received += 1;
-                s.held = Some(Held { mbuf: m, stamp, t2, t3 });
+                s.held = Some(Held { mbuf: m, stamp, seq, tx_tsc, t2, t3 });
                 let deadline = t3 + self.delay;
                 s.state = State::Sleeping { deadline };
                 self.timers.push(deadline, id as u32);
@@ -138,9 +150,11 @@ impl Raw {
 
     /// 第 2 步：到期的 session → record(上一个 reply) → 发下一个 request。
     #[inline(always)]
-    fn on_timers(&mut self) {
-        let now = rdtsc(); // "timer 发现到期"的时刻
+    fn on_timers(&mut self, now: u64) -> bool {
+        // `now` = "timer 发现到期"的时刻，由主循环每轮读一次（与 A 的 runtime 主循环相同）
+        let mut fired = false;
         while let Some((deadline, id)) = self.timers.pop_expired(now) {
+            fired = true;
             let s = &mut self.sessions[id as usize];
             if !matches!(s.state, State::Sleeping { .. }) {
                 continue; // 防御：不应发生
@@ -148,6 +162,7 @@ impl Raw {
             // SPEC 的 loop 形状：sleep 结束后才 record(reply)，然后 reply（mbuf）被释放
             if let Some(h) = s.held.take() {
                 self.stats.on_reply(h.stamp, h.t2, h.t3);
+                self.stats.verify_echo(h.stamp, h.tx_tsc, id as u16, h.seq);
                 drop(h.mbuf);
             }
             if self.stopping {
@@ -155,7 +170,8 @@ impl Raw {
                 continue;
             }
             let seq = s.next_seq;
-            match self.sender.send(&self.dp.port, id as u16, seq) {
+            let t0 = rdtsc(); // T0：record 之后、发送之前——与 A 的 send() 入口是同一个位置
+            match self.sender.send(&self.dp.port, t0, id as u16, seq) {
                 Ok(stamp) => {
                     self.stats.on_wake(deadline, now, stamp.t0);
                     self.stats.c.sent += 1;
@@ -174,6 +190,7 @@ impl Raw {
                 }
             }
         }
+        fired
     }
 
     /// 第 3 步（每 100 µs）：超时扫描。超时的请求计为丢失，session 照常 delay 后发下一个。
@@ -197,7 +214,7 @@ impl Raw {
 }
 
 fn main() {
-    let args = Args::parse();
+    let args = Args::load();
     live::install_signal_handlers();
     let dp = Dataplane::open(&args).unwrap_or_else(|e| {
         eprintln!("初始化失败：{e}");
@@ -210,7 +227,8 @@ fn main() {
 
     let n = args.sessions as usize;
     let delay = ns_to_cycles(args.delay_us * 1000, hz);
-    let start = rdtsc();
+    // 起点定在 1 ms 之后：下面的准备工作不应算进任何 session 的 sleep 误差（见 START_LEAD_NS）
+    let start = rdtsc() + ns_to_cycles(pingkit::house::START_LEAD_NS, hz);
     let end = start + ns_to_cycles(args.duration_sec * 1_000_000_000, hz);
     let mut raw = Raw {
         sender: Sender::new(dp.pool, dp.tmpl.clone()),
@@ -233,12 +251,21 @@ fn main() {
     let mut house = House::new(ns_to_cycles(HOUSEKEEPING_NS, hz), start);
     let mut exit_reason = String::from("到达 --duration-sec，停止发送并等在途请求收尾");
     // ---------------- 主循环：busy-poll，永不睡眠 ----------------
+    // 与 A 的 runtime 主循环同构：收包 → 读一次时钟 → 到期的 timer → 维护节拍
+    let mut watch =
+        StallWatch::new(ns_to_cycles(STALL_THRESHOLD_NS, hz), ns_to_cycles(STALL_RX_THRESHOLD_NS, hz), rdtsc());
+    let mut worked = true; // 上一次读时钟之后是否干过活
     loop {
-        raw.on_rx();
-        raw.on_timers();
+        if let Some(t2) = raw.on_rx() {
+            watch.tick_rx(t2, worked); // 停顿检测（取包前）：在处理完这批包之后才调用，不插在 T2 与 T3 之间
+            worked = true;
+        }
         let now = rdtsc();
+        watch.tick(now, worked); // 停顿检测（空轮询）：上一次读时钟之后什么都没干却隔了很久 → 被外部打断
+        worked = raw.on_timers(now);
         if house.due(now) {
-            maintain(&raw.dp.eal, &raw.dp.port, &raw.stats, &live);
+            worked = true;
+            maintain(&raw.dp.eal, &raw.dp.port, &mut raw.stats, &live);
             raw.scan_timeouts(now);
             if !raw.stopping {
                 if raw.dp.port.reset_requested() {
@@ -257,6 +284,7 @@ fn main() {
             }
         }
     }
+    raw.stats.stalls = watch;
     finish(raw, &args, wall, xstats_before, exit_reason, live, reporter);
 }
 

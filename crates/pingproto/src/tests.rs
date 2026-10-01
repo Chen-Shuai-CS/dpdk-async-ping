@@ -79,11 +79,11 @@ fn classify_echo_reply_roundtrip() {
     let mut req = vec![0u8; t.len()];
     t.write_request(&mut req, 42, 7, 0xdead_beef_0123_4567);
     let reply = make_reply(&req, 127); // 实测对端回包 TTL=127
-    assert_eq!(classify(&reply, e.src_ip), Rx::EchoReply { id: 42, seq: 7, tx_tsc: 0xdead_beef_0123_4567 });
+    assert_eq!(classify(&reply, e.src_ip, e.dst_ip), Rx::EchoReply { id: 42, seq: 7, tx_tsc: 0xdead_beef_0123_4567 });
     // 不是给我的 / 是 request 而不是 reply / 截断的包 → Other
-    assert_eq!(classify(&reply, [10, 0, 0, 1]), Rx::Other);
-    assert_eq!(classify(&req, e.dst_ip), Rx::Other);
-    assert_eq!(classify(&reply[..40], e.src_ip), Rx::Other);
+    assert_eq!(classify(&reply, [10, 0, 0, 1], e.dst_ip), Rx::Other);
+    assert_eq!(classify(&req, e.dst_ip, e.src_ip), Rx::Other);
+    assert_eq!(classify(&reply[..40], e.src_ip, e.dst_ip), Rx::Other);
 }
 
 #[test]
@@ -101,8 +101,8 @@ fn arp_request_is_answered_in_place() {
     a[8..14].copy_from_slice(&peer_mac);
     a[14..18].copy_from_slice(&peer_ip);
     a[24..28].copy_from_slice(&e.src_ip);
-    assert_eq!(classify(&f, e.src_ip), Rx::ArpRequest);
-    assert_eq!(classify(&f, [10, 0, 0, 9]), Rx::Other, "问的不是我");
+    assert_eq!(classify(&f, e.src_ip, e.dst_ip), Rx::ArpRequest);
+    assert_eq!(classify(&f, [10, 0, 0, 9], e.dst_ip), Rx::Other, "问的不是我");
 
     arp_reply_in_place(&mut f, e.src_mac, e.src_ip);
     assert_eq!(&f[0..6], &peer_mac);
@@ -113,7 +113,7 @@ fn arp_request_is_answered_in_place() {
     assert_eq!(&a[14..18], &e.src_ip);
     assert_eq!(&a[18..24], &peer_mac);
     assert_eq!(&a[24..28], &peer_ip);
-    assert_eq!(classify(&f, e.src_ip), Rx::Other, "reply 不应再被当成 request");
+    assert_eq!(classify(&f, e.src_ip, e.dst_ip), Rx::Other, "reply 不应再被当成 request");
 }
 
 #[test]
@@ -121,4 +121,17 @@ fn parse_helpers() {
     assert_eq!(parse_mac("06:ff:fd:b6:f0:cd"), Some([6, 0xff, 0xfd, 0xb6, 0xf0, 0xcd]));
     assert_eq!(parse_mac("06:ff:fd:b6:f0"), None);
     assert_eq!(parse_ipv4("10.202.8.15"), Some([10, 202, 8, 15]));
+}
+
+#[test]
+fn echo_reply_from_another_host_is_never_delivered_to_a_session() {
+    // 实测遇到过：别的主机发给我们 IP 的 echo reply（id=16509）。即使它的 id / seq 碰巧合法，也不能当成 session 的回复。
+    let e = ep();
+    let t = EchoTemplate::new(&e, 64);
+    let mut req = vec![0u8; t.len()];
+    t.write_request(&mut req, 5, 100, 0x1122_3344_5566_7788); // id=5、seq=100：完全像是 session 5 在等的回复
+    let mut reply = make_reply(&req, 64);
+    let stranger = [10, 202, 9, 99];
+    reply[ETH_HDR + 12..ETH_HDR + 16].copy_from_slice(&stranger); // 源 IP 改成别的主机
+    assert_eq!(classify(&reply, e.src_ip, e.dst_ip), Rx::ForeignEchoReply { src: stranger, id: 5, seq: 100 });
 }
