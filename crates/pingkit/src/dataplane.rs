@@ -31,6 +31,9 @@ pub struct Dataplane {
 /// 会互相破坏对方的收发环（表现为丢包、收到别人的包，甚至网卡 reset）。所以启动时先拿一把文件锁，拿不到就拒绝启动。
 /// 锁随进程结束自动释放（包括崩溃、被 kill），不会留下需要手工清理的残留。
 fn instance_lock(pci: &str) -> Result<Option<std::fs::File>, String> {
+    if !std::path::Path::new(&format!("/sys/bus/pci/devices/{pci}")).exists() {
+        return Ok(None); // 设备不存在：不留下无意义的锁文件，后面的 EAL 初始化自会报错
+    }
     let path = format!("/run/bqping-{pci}.lock");
     let Ok(f) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path) else {
         return Ok(None); // 没有权限创建锁文件（非 root）：后面的 EAL 初始化自会报错
