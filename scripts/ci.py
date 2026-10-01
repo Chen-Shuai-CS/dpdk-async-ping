@@ -12,7 +12,7 @@
 方法要点：
 - 先分别求 A、B 的分位数，再相减（A 和 B 是两次独立的运行，样本之间没有一一对应关系，不能先相减）。
 - 相邻样本不独立（同一批包、同一次被打断会连续影响很多样本），所以不能把 5000 万个样本当成 5000 万次独立观测。
-  做法：把时间轴切成 1 秒一块，以"块"为单位有放回地重抽，块内的相关性原样保留。
+  做法：把时间轴切成 20 秒一块，以"块"为单位有放回地重抽，块内的相关性原样保留。
   同时给出"假装样本独立"时的区间作对比，两者宽度之比的平方就是有效样本数缩水的倍数。
 """
 import argparse
@@ -188,8 +188,10 @@ def burst_positions(t2, s2):
 
 def analyse_one(path, label):
     hz, s1, s2, t2 = load(path)
-    step = int(np.gcd.reduce(np.concatenate([s1[:2_000_000], s2[:2_000_000]]).astype(np.int64)))
-    step = max(step, 1)
+    # TSC 读数的步长 = 所有时间差的最大公约数。饱和值（0xFFFF）是截断出来的，不是真实的时间差，要排除
+    head = np.concatenate([s1[:2_000_000], s2[:2_000_000]]).astype(np.int64)
+    step = max(int(np.gcd.reduce(head[head < 0xFFFF])), 1)
+    del head
     step_ns = step * 1e9 / hz
     blk, dur = time_blocks(t2, hz)
     nb = int(blk.max()) + 1
@@ -228,7 +230,8 @@ def main():
     ap.add_argument("--a", required=True)
     ap.add_argument("--b", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--block-sec", type=float, default=1.0, help="分块自助的块长（秒）")
+    ap.add_argument("--block-sec", type=float, default=20.0,
+                    help="分块自助的块长（秒）。块要长到能把样本之间的相关性包在块内；实测区间随块长变宽，到 20 秒左右才趋于稳定")
     ap.add_argument("--reps", type=int, default=2000, help="重抽次数")
     a = ap.parse_args()
     rng = np.random.default_rng(SEED)
@@ -252,7 +255,7 @@ def main():
 
     # 2. 块长敏感性 + 与"假装独立"的对比（看进程内 p99 和平均值的 A − B）
     sens = []
-    for sec in (0.1, 1.0, 5.0, 20.0):
+    for sec in (0.1, 1.0, 5.0, 20.0, 60.0):
         kk = max(1, round(sec / BASE_SEC))
         ra, rb = regroup(HA["inproc"], kk), regroup(HB["inproc"], kk)
         ba, bb = resample_blocks(ra, a.reps, rng), resample_blocks(rb, a.reps, rng)
@@ -264,7 +267,7 @@ def main():
     iid = {"mean_diff_ci": ci(mean_of(ia_, step_ns) - mean_of(ib_, step_ns))}
     for qn, q in (("p50", 0.5), ("p99", 0.99)):
         iid[f"{qn}_diff_ci"] = ci(quantiles(ia_, q, step_ns)[1] - quantiles(ib_, q, step_ns)[1])
-    ref = next(r for r in sens if r["block_sec"] == 1.0)
+    ref = min(sens, key=lambda r: abs(r["block_sec"] - k * BASE_SEC))
     width = lambda c: max(c[1] - c[0], 1e-9)
     n_total = ia["samples"] + ib["samples"]
     out["block_sensitivity"] = sens

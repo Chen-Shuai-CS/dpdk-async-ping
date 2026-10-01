@@ -1,0 +1,48 @@
+[10:17:58] 一、语言与依赖（SPEC：Rust；自研 executor / Waker / timer / reactor；不得使用现成 runtime）
+  ✔ Cargo.lock 里没有任何现成的 async runtime / 执行器 / reactor 库
+  ✔ rt（runtime）只依赖本仓库的 dpdk 与 timerq 两个 crate
+  ✔ rt 自己实现了 Waker（RawWakerVTable）、就绪队列、timer、poll-mode 主循环
+  ✔ 主循环里没有任何会睡眠 / 阻塞的调用（epoll、sleep、park、condvar）
+[10:17:58] 二、三个客户端与命令行（SPEC §6）
+  ✔ async-ping（A）与 raw-ping（B）都能构建
+  ✔ async-ping 接受 --delay-us / --duration-sec / --sessions
+  ✔ raw-ping 接受 --delay-us / --duration-sec / --sessions
+  ✔ A 和 B 共用同一份参数定义、同一个发送函数（段①）
+  ✔ C（系统 ping）的运行脚本存在
+[10:18:05] 三、unsafe 的边界
+    unsafe 块 / 函数共 57 处（不含 bindgen 生成的 dpdk-sys）：
+      dpdk         45
+      rt           6
+      pingkit      4
+      async-ping   1
+      raw-ping     1
+      pingproto    0
+      timerq       0
+  ✔ 每一个 unsafe 块上方都有 SAFETY 说明
+  ✔ 协议解析（pingproto）与 timer 堆（timerq）完全不含 unsafe
+[10:18:05] 四、静态检查与测试
+  ✔ cargo clippy --all-targets：0 警告
+  ✔ cargo test：全部通过（34 个）
+[10:18:22] 五、硬门槛：主考核日志（SPEC：≥ 10 分钟不崩、零 mbuf 泄漏、零丢包或有解释）
+  ✔ A：运行时长 ≥ 600 秒，正常退出
+  ✔ A：零 mbuf 泄漏
+  ✔ A：零丢包（0 超时）
+  ✔ A：请求对账与收包对账都为 0
+  ✔ A：样本数 = received − tsc_mismatch，且没有时间戳核对不符
+  ✔ A：AWS 限额计数、网卡丢弃计数全为 0
+  ✔ A：是排名口径的运行（没有开任何诊断开关），且由干净的源码树构建
+  ✔ B：运行时长 ≥ 600 秒，正常退出
+  ✔ B：零 mbuf 泄漏
+  ✔ B：零丢包（0 超时）
+  ✔ B：请求对账与收包对账都为 0
+  ✔ B：样本数 = received − tsc_mismatch，且没有时间戳核对不符
+  ✔ B：AWS 限额计数、网卡丢弃计数全为 0
+  ✔ B：是排名口径的运行（没有开任何诊断开关），且由干净的源码树构建
+  ✔ A 与 B 的主考核来自同一个代码版本
+[10:18:22] 六、交付物（SPEC §8）
+  ✔ README.md、docs/REPORT.md（延迟报告）、docs/WORKLOG.md 都在
+  ✔ 一键搭环境 / 一键运行脚本可执行
+  ✔ 报告由脚本从日志生成（可复现）
+  ✔ 故障注入结果存在且全部通过
+
+[10:18:22] 全部 32 项通过

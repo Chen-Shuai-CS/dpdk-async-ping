@@ -61,9 +61,9 @@ def plot_ccdf(ci, ci_m, out):
 
 
 def plot_series(ci, out):
-    """每秒一个点：10 分钟内 p50 / p99 是否稳定。"""
+    """每秒一个点：10 分钟内 p50 / p99 怎么变。"""
     fig, axes = plt.subplots(2, 1, figsize=(10, 5.2), sharex=True)
-    for ax, key, title in ((axes[0], "p99", "per-second p99 of in-process time (ns)"), (axes[1], "p50", "per-second p50 of in-process time (ns)")):
+    for ax, key, title in ((axes[0], "p99", "p99 (ns)"), (axes[1], "p50", "p50 (ns)")):
         for side, col in (("A", CA), ("B", CB)):
             y = ci["series"][side][key]
             ax.plot(range(len(y)), y, color=col, lw=0.8, label=side)
@@ -71,7 +71,7 @@ def plot_series(ci, out):
         ax.grid(True, alpha=0.25)
         ax.legend(loc="upper right", ncol=2, fontsize=9)
     axes[1].set_xlabel("time (s)")
-    fig.suptitle("Stationarity over the 10-minute run (one point per second, interpolated quantiles)", fontsize=10, y=0.94)
+    fig.suptitle("In-process time over the 10-minute run: one point per second (A and B are separate runs)", fontsize=10, y=0.94)
     save(fig, out, "timeseries.png")
 
 
@@ -158,13 +158,13 @@ def plot_abba(d, out):
     diff = lambda name, key: [metric(runs[("A", i)], name)[key] - metric(runs[("B", i)], name)[key] for i in idx]
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.4))
     for ax, (name, key, title) in zip(axes, (("in-process", "p50_interp", "in-process p50"), ("in-process", "p99_interp", "in-process p99"),
-                                              ("seg②", "mean", "seg2 mean (the runtime's tax)"))):
+                                              ("seg②", "mean", "seg2 mean"))):
         y = diff(name, key)
         cols = ["#444444" if i % 2 else "#aaaaaa" for i in idx]
         ax.bar(idx, y, color=cols)
         ax.axhline(0, color="k", lw=0.8)
         ax.axhline(sum(y) / len(y), color="tab:green", lw=1.2, ls="--")
-        ax.set_title(f"{title}: A - B per pair (mean {sum(y) / len(y):+.1f} ns)", fontsize=9)
+        ax.set_title(f"{title}\nA - B per pair, mean {sum(y) / len(y):+.1f} ns", fontsize=9)
         ax.set_xlabel("pair (dark: A first, light: B first)")
         ax.set_xticks(idx)
         ax.grid(True, axis="y", alpha=0.25)

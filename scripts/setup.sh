@@ -25,6 +25,8 @@ phase_packages() {
         elfutils-libelf-devel perf numactl ethtool tcpdump jq strace sysstat
     # AL2023 的源里没有 python3-pyelftools，DPDK 构建需要它
     python3 -c 'import elftools' 2>/dev/null || sudo python3 -m pip install -q pyelftools
+    # 离线分析与出图（scripts/ci.py、scripts/plots.py）用；运行 A / B 本身不需要
+    python3 -c 'import numpy, matplotlib' 2>/dev/null || python3 -m pip install --user -q numpy matplotlib
     ok "gcc $(gcc -dumpversion)，clang $(clang --version | head -1 | awk '{print $3}')，meson $(meson --version)"
 }
 

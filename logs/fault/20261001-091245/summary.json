@@ -1,0 +1,1476 @@
+[
+ {
+  "case": "baseline",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 492,880，超时 0",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "正常运行 5 秒（对照组）"
+ },
+ {
+  "case": "baseline",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 527,337，超时 0",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "正常运行 5 秒（对照组）"
+ },
+ {
+  "case": "timeout-race",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 26,252，超时 511,378，其中迟到收到 511,378（超时的请求事后几乎都等到了迟到的回复）",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "超时设成 1 µs：超时与回复反复抢跑（回复先到算收到，超时扫描先到则算丢失、回复算迟到）"
+ },
+ {
+  "case": "timeout-race",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 7,166，超时 610,979，其中迟到收到 610,979（超时的请求事后几乎都等到了迟到的回复）",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "超时设成 1 µs：超时与回复反复抢跑（回复先到算收到，超时扫描先到则算丢失、回复算迟到）"
+ },
+ {
+  "case": "blackhole",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "发 30,219，收到 0，超时 30,219（100% 丢失，如实计数）",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "对端 MAC 填一个不存在的地址：发出去的包全部石沉大海"
+ },
+ {
+  "case": "blackhole",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "发 30,464，收到 0，超时 30,464（100% 丢失，如实计数）",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "对端 MAC 填一个不存在的地址：发出去的包全部石沉大海"
+ },
+ {
+  "case": "sigint",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "信号发出后 21 ms 退出，报告完整，收到 279,423",
+  "rc": 0,
+  "exit_delay": 0.02072286605834961,
+  "wall_sec": 3.02,
+  "exit_reason": "收到 SIGINT/SIGTERM，停止发送并收尾",
+  "what": "运行中途收到 SIGINT（Ctrl-C）"
+ },
+ {
+  "case": "sigint",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "信号发出后 16 ms 退出，报告完整，收到 279,274",
+  "rc": 0,
+  "exit_delay": 0.016173124313354492,
+  "wall_sec": 3.02,
+  "exit_reason": "收到 SIGINT/SIGTERM，停止发送并收尾",
+  "what": "运行中途收到 SIGINT（Ctrl-C）"
+ },
+ {
+  "case": "sigterm",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "信号发出后 15 ms 退出，报告完整",
+  "rc": 0,
+  "exit_delay": 0.015380144119262695,
+  "wall_sec": 3.02,
+  "exit_reason": "收到 SIGINT/SIGTERM，停止发送并收尾",
+  "what": "运行中途收到 SIGTERM（kill）"
+ },
+ {
+  "case": "sigterm",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "信号发出后 20 ms 退出，报告完整",
+  "rc": 0,
+  "exit_delay": 0.019993305206298828,
+  "wall_sec": 3.02,
+  "exit_reason": "收到 SIGINT/SIGTERM，停止发送并收尾",
+  "what": "运行中途收到 SIGTERM（kill）"
+ },
+ {
+  "case": "freeze",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "停顿检测报告最长停顿 2.02 s；恢复后继续运行，收到 612,630，超时 0，迟到 0",
+  "rc": 0,
+  "exit_delay": 6.1575846672058105,
+  "wall_sec": 8.16,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "进程被冻结 2 秒（SIGSTOP → SIGCONT）：模拟被调度器 / 宿主机长时间夺走 CPU"
+ },
+ {
+  "case": "freeze",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "停顿检测报告最长停顿 2.01 s；恢复后继续运行，收到 614,499，超时 0，迟到 0",
+  "rc": 0,
+  "exit_delay": 6.155550956726074,
+  "wall_sec": 8.16,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "进程被冻结 2 秒（SIGSTOP → SIGCONT）：模拟被调度器 / 宿主机长时间夺走 CPU"
+ },
+ {
+  "case": "mbuf-exhaust",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "驱动补 RX 环失败 20,743,863 次，发送侧取不到 mbuf 13,942 次（1 µs 后重试）；收到 424,077，丢失 1,586，网卡 imissed 计数 1,586（丢包全部能由网卡的丢弃计数解释）",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "mbuf 池故意配得太小（1040 个，光 RX 环就要 1023 个）：运行中反复取不到 mbuf"
+ },
+ {
+  "case": "mbuf-exhaust",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "驱动补 RX 环失败 23,478,482 次，发送侧取不到 mbuf 5,580 次（1 µs 后重试）；收到 444,106，丢失 1,334，网卡 imissed 计数 1,334（丢包全部能由网卡的丢弃计数解释）",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "mbuf 池故意配得太小（1040 个，光 RX 环就要 1023 个）：运行中反复取不到 mbuf"
+ },
+ {
+  "case": "small-rings",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 483,946，超时 0，tx-full 0",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "RX / TX 环缩到 256 个描述符"
+ },
+ {
+  "case": "small-rings",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 449,136，超时 0，tx-full 0",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "RX / TX 环缩到 256 个描述符"
+ },
+ {
+  "case": "sessions-1",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 5,336，超时 0",
+  "rc": 0,
+  "wall_sec": 3.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：只有 1 个 session"
+ },
+ {
+  "case": "sessions-1",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 5,338，超时 0",
+  "rc": 0,
+  "wall_sec": 3.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：只有 1 个 session"
+ },
+ {
+  "case": "sessions-256",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 603,112，超时 0",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：256 个 session（delay 2000 µs）"
+ },
+ {
+  "case": "sessions-256",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 590,421，超时 0",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：256 个 session（delay 2000 µs）"
+ },
+ {
+  "case": "delay-0",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 201,913，超时 0",
+  "rc": 0,
+  "wall_sec": 3.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：delay = 0（收到回复立刻发下一个，4 个 session）"
+ },
+ {
+  "case": "delay-0",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 203,187，超时 0",
+  "rc": 0,
+  "wall_sec": 3.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：delay = 0（收到回复立刻发下一个，4 个 session）"
+ },
+ {
+  "case": "payload-8",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 261,253，超时 0",
+  "rc": 0,
+  "wall_sec": 3.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：payload 最小值 8 字节（只放得下时间戳）"
+ },
+ {
+  "case": "payload-8",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 306,691，超时 0",
+  "rc": 0,
+  "wall_sec": 3.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：payload 最小值 8 字节（只放得下时间戳）"
+ },
+ {
+  "case": "payload-1472",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 151,863，超时 0",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：payload 最大值 1472 字节（正好一个 1500 MTU 的包；delay 2000 µs，约 0.4 Gbit/s）"
+ },
+ {
+  "case": "payload-1472",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "收到 153,425，超时 0",
+  "rc": 0,
+  "wall_sec": 5.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：payload 最大值 1472 字节（正好一个 1500 MTU 的包；delay 2000 µs，约 0.4 Gbit/s）"
+ },
+ {
+  "case": "bandwidth-1.2G",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "发 807,315（1.22 Gbit/s），丢失 129（160 ppm），迟到 0；本机网卡 imissed / ierrors / rx_nombuf / AWS 限额计数全为 0 → 包不是在本机丢的（见下文说明）",
+  "rc": 0,
+  "wall_sec": 8.23,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "满 MTU 的包 + delay 500 µs：单向约 1.2 Gbit/s，把链路 / 对端推到带宽上限附近"
+ },
+ {
+  "case": "bandwidth-1.2G",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "发 803,670（1.22 Gbit/s），丢失 64（80 ppm），迟到 0；本机网卡 imissed / ierrors / rx_nombuf / AWS 限额计数全为 0 → 包不是在本机丢的（见下文说明）",
+  "rc": 0,
+  "wall_sec": 8.18,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "满 MTU 的包 + delay 500 µs：单向约 1.2 Gbit/s，把链路 / 对端推到带宽上限附近"
+ },
+ {
+  "case": "duration-1",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "实际 1.00 s，收到 97,642",
+  "rc": 0,
+  "wall_sec": 1.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：只跑 1 秒"
+ },
+ {
+  "case": "duration-1",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "实际 1.00 s，收到 101,094",
+  "rc": 0,
+  "wall_sec": 1.17,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "边界：只跑 1 秒"
+ },
+ {
+  "case": "second-instance",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "第二个进程被拒绝（退出码 2）；先启动的进程不受影响，收到 630,695，超时 0",
+  "rc": 0,
+  "second_rc": 2,
+  "second_refused": true,
+  "wall_sec": 6.18,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "运行中再启动另一个客户端抢同一张网卡"
+ },
+ {
+  "case": "second-instance",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 0",
+    true
+   ],
+   [
+    "mbuf 零泄漏",
+    true
+   ],
+   [
+    "请求对账 = 0",
+    true
+   ],
+   [
+    "收包对账 = 0",
+    true
+   ],
+   [
+    "样本数 = received − tsc_mismatch",
+    true
+   ],
+   [
+    "场景预期",
+    true
+   ]
+  ],
+  "detail": "第二个进程被拒绝（退出码 2）；先启动的进程不受影响，收到 581,860，超时 0",
+  "rc": 0,
+  "second_rc": 2,
+  "second_refused": true,
+  "wall_sec": 6.18,
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "what": "运行中再启动另一个客户端抢同一张网卡"
+ },
+ {
+  "case": "bad-sessions",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 2",
+    true
+   ],
+   [
+    "给出了明确的错误原因",
+    true
+   ]
+  ],
+  "detail": "参数错误：--sessions 至少为 1",
+  "rc": 2,
+  "wall_sec": 0.02,
+  "what": "非法参数：--sessions 0"
+ },
+ {
+  "case": "bad-sessions",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 2",
+    true
+   ],
+   [
+    "给出了明确的错误原因",
+    true
+   ]
+  ],
+  "detail": "参数错误：--sessions 至少为 1",
+  "rc": 2,
+  "wall_sec": 0.02,
+  "what": "非法参数：--sessions 0"
+ },
+ {
+  "case": "bad-payload",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 2",
+    true
+   ],
+   [
+    "给出了明确的错误原因",
+    true
+   ]
+  ],
+  "detail": "参数错误：--payload 需在 8..=1472 之间（前 8 字节放发送时刻 TSC；上限由 1500 的 MTU 决定）",
+  "rc": 2,
+  "wall_sec": 0.02,
+  "what": "非法参数：--payload 1473（超过 MTU）"
+ },
+ {
+  "case": "bad-payload",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 2",
+    true
+   ],
+   [
+    "给出了明确的错误原因",
+    true
+   ]
+  ],
+  "detail": "参数错误：--payload 需在 8..=1472 之间（前 8 字节放发送时刻 TSC；上限由 1500 的 MTU 决定）",
+  "rc": 2,
+  "wall_sec": 0.02,
+  "what": "非法参数：--payload 1473（超过 MTU）"
+ },
+ {
+  "case": "bad-mbufs",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 2",
+    true
+   ],
+   [
+    "给出了明确的错误原因",
+    true
+   ]
+  ],
+  "detail": "参数错误：--mbufs 1023 太小：64 个 session 至少需要 2688",
+  "rc": 2,
+  "wall_sec": 0.02,
+  "what": "非法参数：--mbufs 太小（未跳过检查）"
+ },
+ {
+  "case": "bad-mbufs",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 2",
+    true
+   ],
+   [
+    "给出了明确的错误原因",
+    true
+   ]
+  ],
+  "detail": "参数错误：--mbufs 1023 太小：64 个 session 至少需要 2688",
+  "rc": 2,
+  "wall_sec": 0.02,
+  "what": "非法参数：--mbufs 太小（未跳过检查）"
+ },
+ {
+  "case": "bad-pci",
+  "client": "A",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 2",
+    true
+   ],
+   [
+    "给出了明确的错误原因",
+    true
+   ]
+  ],
+  "detail": "初始化失败：找不到 DPDK 端口（网卡是否已 bind？） 失败: No such device (errno 19)",
+  "rc": 2,
+  "wall_sec": 0.16,
+  "what": "网卡地址不存在"
+ },
+ {
+  "case": "bad-pci",
+  "client": "B",
+  "ok": true,
+  "checks": [
+   [
+    "没有崩溃",
+    true
+   ],
+   [
+    "退出码 2",
+    true
+   ],
+   [
+    "给出了明确的错误原因",
+    true
+   ]
+  ],
+  "detail": "初始化失败：找不到 DPDK 端口（网卡是否已 bind？） 失败: No such device (errno 19)",
+  "rc": 2,
+  "wall_sec": 0.16,
+  "what": "网卡地址不存在"
+ }
+]

@@ -65,7 +65,7 @@ def section_totals(a):
         ("发送侧合计：③ + ①（发现到期 → T1）", s1a + s3a, s1b + s3b, False),
         ("**自己代码的全部时间：① + ② + ③**", s1a + s2a + s3a, s1b + s2b + s3b, True),
     ]
-    notes = {("B", "seg1"): "<- includes the NIC wait", ("A", "seg3"): "<- scheduling lands here (not ranked)",
+    notes = {("B", "seg1"): "<- includes the stall", ("A", "seg3"): "<- scheduling + the stall land here (not ranked)",
              ("A", "seg2"): "<- the runtime's tax"}
     bars = []
     for lab, vals in (("B", (s3b, s1b, s2b)), ("A", (s3a, s1a, s2a))):
@@ -146,7 +146,7 @@ def section_ab(a):
         slow_b = [runs[("B", i)]["seg1_slow_percent"] for i in idx]
         p99_a = [metric(runs[("A", i)], "seg①")["p99"] for i in idx]
         lines.append(f"\n段① ≥ 125 ns 的占比在各轮之间的范围：A {min(slow_a):.2f}% ~ {max(slow_a):.2f}%，B {min(slow_b):.2f}% ~ {max(slow_b):.2f}%。"
-                     f"A 的段① p99 各轮为 {' / '.join(str(v) for v in p99_a)} ns：占比低于 1% 的轮次落在 70 ~ 80 ns，高于 1% 的轮次落在 150 ns 以上。")
+                     f"A 的段① p99 各轮为 {' / '.join(str(v) for v in p99_a)} ns：占比低于 1% 时读数是 70 ~ 80 ns，一旦高于 1% 就跳到 130 ns 以上（主考核的 A 是 1.03%，读数 130）。")
         parts.append("\n".join(lines))
     return "\n\n".join(parts) if parts else "（没有找到新格式的交替运行结果）"
 
@@ -195,7 +195,7 @@ def section_probe(a):
         pa, pb = load(a.probe_a), load(a.probe_b)
     except FileNotFoundError:
         return "（未找到 probe 运行结果）"
-    out += ["段①的三个子步骤（ns；只统计距上次发送 ≥ 250 ns 的发送；每步各含一次约 16 ns 的时钟读取）：\n",
+    out += ["段①的三个子步骤（ns；只统计距上次发送 ≥ 250 ns 的发送；每步各含一次约 18 ns 的时钟读取）：\n",
             "| | | p50 | p90 | p99 | p99.9 | p99.99 |", "|---|---|---|---|---|---|---|"]
     for name in ("(probe) ①取 mbuf", "(probe) ①写包", "(probe) ①tx_burst"):
         for label, r in (("A", pa), ("B", pb)):
@@ -244,23 +244,23 @@ def section_ci(a):
            f"时间戳分辨率 {c['tsc_step_ns']:g} ns。单位 ns。\n"]
     out += ci_table(c)
     e = c["effective"]
-    out += ["", "**样本并不独立。** 把 1 亿个样本当成 1 亿次独立观测，会把区间算得过窄：\n",
+    n_all = ia["samples"] + ib["samples"]
+    out += ["", f"**样本并不独立，块长的选择很重要。** 同样的数据，用不同的方式重抽，A − B 的 95% 区间如下：\n",
             "| 重抽方式 | 进程内平均 A − B | 进程内 p50 A − B | 进程内 p99 A − B |", "|---|---|---|---|",
-            f"| 假装样本相互独立 | {ci_str(c['iid']['mean_diff_ci'])} | {ci_str(c['iid']['p50_diff_ci'])} | {ci_str(c['iid']['p99_diff_ci'])} |"]
+            f"| 假装 {n_all / 1e8:.2f} 亿个样本相互独立 | {ci_str(c['iid']['mean_diff_ci'])} | {ci_str(c['iid']['p50_diff_ci'])} | {ci_str(c['iid']['p99_diff_ci'])} |"]
     for r in c["block_sensitivity"]:
-        if r["blocks"] < 10:
-            continue
         mark = "**" if abs(r["block_sec"] - c["block_sec"]) < 1e-9 else ""
         out.append(f"| {mark}按 {r['block_sec']:g} 秒分块（{r['blocks']} 块）{mark} | {ci_str(r['mean_diff_ci'])} | {ci_str(r['p50_diff_ci'])} | {ci_str(r['p99_diff_ci'])} |")
-    out.append(f"\n按 1 秒分块得到的区间比\"假装独立\"宽 {e['mean_diff_ci']['design_effect'] ** 0.5:.1f} 倍（平均值）/ "
-               f"{e['p50_diff_ci']['design_effect'] ** 0.5:.1f} 倍（p50）/ {e['p99_diff_ci']['design_effect'] ** 0.5:.1f} 倍（p99），"
-               f"相当于 {ia['samples'] + ib['samples']:,} 个样本只顶 {e['mean_diff_ci']['effective_samples']:,} ~ {e['p99_diff_ci']['effective_samples']:,} 个独立样本。"
-               "块长从 0.1 秒换到 20 秒，区间基本不变，说明结论不依赖块长的选择。")
+    out.append(f"\n区间随块长增大而变宽：相关性不只存在于相邻的样本之间，还存在于几秒到几十秒的尺度上（对端的往返时间会换档，见下面的每秒序列）。"
+               f"块太短会把这部分相关性切断、把区间算窄，所以上表采用 {c['block_sec']:g} 秒的块；按这个块长，区间比\"假装独立\"宽 "
+               f"{e['p99_diff_ci']['design_effect'] ** 0.5:.0f} ~ {max(v['design_effect'] for v in e.values()) ** 0.5:.0f} 倍。"
+               "块再长（60 秒，只剩 10 块）区间还会略宽，但块数太少时重抽本身就不可靠。"
+               "所以**单次运行的区间应当看作不确定度的下限**；不同运行之间的波动见 §3.3。")
     sf = c["seg1_slow_fraction"]
     out.append(f"\n**段① 的 p99 为什么不稳定。** 段① ≥ {sf['threshold_ns']:.0f} ns 的样本占比：A {sf['A']['percent']:.2f}%"
                f"（95% 区间 {sf['A']['ci'][0]:.2f}% ~ {sf['A']['ci'][1]:.2f}%），B {sf['B']['percent']:.2f}%（{sf['B']['ci'][0]:.2f}% ~ {sf['B']['ci'][1]:.2f}%）。")
     sa, sb = c["series"]["A"]["summary"], c["series"]["B"]["summary"]
-    out += ["", "**10 分钟内是否稳定。** 把每一秒单独算一次（进程内耗时，ns）：\n",
+    out += ["", "**10 分钟内的变化范围。** 把每一秒单独算一次（进程内耗时，ns）：\n",
             "| | 每秒 p50：最小 / 中位 / 最大 | 每秒 p99：最小 / 中位 / 最大 | 每秒平均：最小 / 中位 / 最大 |", "|---|---|---|---|"]
     for lab, x in (("A", sa), ("B", sb)):
         out.append(f"| {lab} | " + " | ".join(f"{x[k]['min']:.1f} / {x[k]['median']:.1f} / {x[k]['max']:.1f}" for k in ("p50", "p99", "mean")) + " |")
@@ -282,8 +282,23 @@ def section_burst(a):
                    f"| **{d['mean']['value']:+.1f}** | {ci_str(d['mean']['ci'])} | {r['A']['p50']['interp']:.1f} / {r['B']['p50']['interp']:.1f} "
                    f"| **{d['p50']['interp']:+.1f}** | {ci_str(d['p50']['interp_ci'])} | {d['p99']['interp']:+.1f} | {ci_str(d['p99']['interp_ci'])} |")
     ia, ib = c["inputs"]["A"], c["inputs"]["B"]
-    out.append(f"\n核对：由样本还原出的批大小分布与程序自己统计的 rx_burst 分布一致；同一批内段②随位置递增的比例 A {ia['seg2_nondecreasing_within_burst']:.4%}、"
-               f"B {ib['seg2_nondecreasing_within_burst']:.4%}。")
+
+    def recon(r, info):
+        """程序自己统计的 rx_burst 分布（含所有包）与由样本还原出的（只含按时到达的 echo reply）逐档相比。"""
+        prog = {}
+        for k, n in r["burst_sizes"]:
+            key = str(k) if k < 8 else "8+"
+            prog[key] = prog.get(key, 0) + n
+        smp = info["burst_sizes_from_samples"]
+        diff = sum(abs(prog.get(k, 0) - smp.get(k, 0)) for k in set(prog) | set(smp))
+        cc = r["counters"]
+        return diff, cc["foreign"] + cc["other_rx"] + cc["arp_replies"] + cc["late"] + cc["unexpected"]
+
+    (da, na), (db, nb) = recon(load(a.main_a), ia), recon(load(a.main_b), ib)
+    out.append(f"\n核对这种还原方法：把由样本还原出的批大小分布，与程序运行时自己统计的 rx_burst 分布逐档相比，"
+               f"A 总共相差 {da} 批、B 相差 {db} 批，而运行中收到的非 echo 包分别是 {na} 个、{nb} 个"
+               f"（程序的统计包含所有包，样本只含 echo reply；一个非 echo 包若与回复同批到达，会同时改变相邻两档的计数）——差别全部来自这些包。"
+               f"同一批内段②随位置递增的比例：A {ia['seg2_nondecreasing_within_burst']:.4%}、B {ib['seg2_nondecreasing_within_burst']:.4%}。")
     return "\n".join(out)
 
 
@@ -354,8 +369,9 @@ def section_fault(a):
 
 
 def section_soak(a):
-    out = ["| 客户端 | 实际时长 | sent | received | 超时（丢包） | 对账差 | 收包对账差 | mbuf 泄漏 | AWS 限额超限 | 进程内 p50 / p99 / p99.99 / max（ns） | 最长一次被打断 |",
-           "|---|---|---|---|---|---|---|---|---|---|---|"]
+    out = ["| 客户端 | 实际时长 | sent | received | 超时（丢包） | 迟到 | 对账差 | 收包对账差 | mbuf 泄漏 | 网卡发送计数 − sent − ARP 应答 | 网卡接收计数 − 程序收到的包 "
+           "| 网卡丢弃 / AWS 限额计数 | 进程内 p50 / p99 / p99.99（ns） | 最长一次被打断 |",
+           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     found = False
     for lab, p in (("A", a.soak_a), ("B", a.soak_b)):
         try:
@@ -363,12 +379,13 @@ def section_soak(a):
         except FileNotFoundError:
             continue
         found = True
-        c, m, ip = r["counters"], r["mbuf"], metric(r, "in-process")
+        c, m, ip, po = r["counters"], r["mbuf"], metric(r, "in-process"), r["port"]
         rx = c["rx_pkts"] - (c["received"] + c["late"] + c["unexpected"] + c.get("foreign", 0) + c["other_rx"] + c["arp_replies"])
-        out.append(f"| {lab} | {r['elapsed_sec']:.1f} s | {c['sent']:,} | {c['received']:,} | {c['timeouts']} "
+        drops = po["imissed"] + po["ierrors"] + po["oerrors"] + po["rx_nombuf"] + sum(v for _, v in po["allowance_exceeded"])
+        out.append(f"| {lab} | {r['elapsed_sec']:.1f} s | {c['sent']:,} | {c['received']:,} | {c['timeouts']} | {c['late']} "
                    f"| {c['sent'] - c['received'] - c['timeouts'] - c['in_flight_at_end']} | {rx} | {m['avail_initial'] - m['avail_final']} "
-                   f"| {sum(v for _, v in r['port']['allowance_exceeded'])} | {ip['p50']} / {ip['p99']} / {ip['p99_99']} / {ip['max']:,} "
-                   f"| {max(r['stalls']['max_ns'], r['stalls']['rx_max_ns']) / 1e3:.0f} µs |")
+                   f"| {po['opackets'] - c['sent'] - c['arp_replies']} | {po['ipackets'] - c['rx_pkts']} | {drops} "
+                   f"| {ip['p50']} / {ip['p99']} / {ip['p99_99']} | {max(r['stalls']['max_ns'], r['stalls']['rx_max_ns']) / 1e3:.0f} µs |")
     return "\n".join(out) if found else "（未找到长时间运行结果）"
 
 

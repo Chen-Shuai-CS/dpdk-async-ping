@@ -5,33 +5,37 @@ ENA_DRIVER: ena_tx_queue_release(): Tx queue 0:0 released
 
 ==================== B · raw-ping（手写 busy-poll，无 runtime） ====================
 sessions 64  delay 500 µs  duration 30 s (实际 30.00 s)  payload 64 B  timeout 10000 µs  TSC 2.600 GHz
-sent 2590444  received 2590444  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  foreign 0  tsc-mismatch 0  other 0  arp-replied 1  tx-full 0  no-mbuf 0
+sent 2754619  received 2754619  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  foreign 0  tsc-mismatch 0  other 0  arp-replied 1  tx-full 0  no-mbuf 0
 对账：sent − received − timeouts − in-flight = 0（应为 0）；丢包 = timeouts = 0（其中 0 个迟到收到）
-收包对账：rx 2590445 − (received + late + unexpected + foreign + other + arp) = 0（应为 0）
+收包对账：rx 2754620 − (received + late + unexpected + foreign + other + arp) = 0（应为 0）
 
 metric (ns)                       count      min     mean      p50      p90      p99    p99.9   p99.99        max
-in-process ①+②  [排名指标]          2590444       80      211      200      260      360      450      580      14140
-seg① send  T1−T0                2590444       70       84       80       90      100      190      300       7570
-seg② recv  T3−T2                2590444       10      127      120      180      270      350      469      14050
-end-to-end T3−T0                2590444    56530   240996   241821   244972   248123   252849   285932     375690
-seg③ wake→next T0               2590444       30      147       70      330      770     1209     1655       6480
-sleep error                     2590444        0       47       10      160      360      840     2713      21760
-deadline→next T0 (误差+③)         2590444       40      194       70      490      920     1480     3212      21830
+in-process ①+②  [排名指标]          2754619       80      215      210      270      360      450      589      15520
+seg① send  T1−T0                2754619       70       83       80       90      100      180      300       5140
+seg② recv  T3−T2                2754619       10      131      120      180      280      360      469      15440
+end-to-end T3−T0                2754619    53240   196837   243396   249698   252849   257575   271753     339890
+seg③ wake→next T0               2754619       20      129       60      320      740     1147     2024      12940
+sleep error                     2754619        0       43       10      150      350      907     2923      14640
+deadline→next T0 (误差+③)         2754619       30      171       70      469      870     1467     3556      14730
   (诊断) seg① 距上次发送<100ns               0        0        0        0        0        0        0        0          0
-  (诊断) seg① 100–250ns                10       80       92       90      100      100      100      100        100
-  (诊断) seg① 250–500ns            742240       70       85       80       90      170      210      320       4420
-  (诊断) seg① 500ns–2µs           1378224       70       84       80       90      100      180      260       7570
-  (诊断) seg① ≥2µs                 469970       70       84       80       90      100      180      270       3850
-  (probe) ①取 mbuf               2590434       10       17       20       20       20       20       30       4430
-  (probe) ①写包                   2590434       10       18       20       20       20       30       30       3790
-  (probe) ①tx_burst             2590434       40       49       50       60       70      150      260       7530
-  (诊断) 维护: rte_timer_manage      299949       20       25       20       30       30       40      700       2810
-  (诊断) 维护: 整个节拍                  299949       50      249       50      840     1147     1301     1581       8490
+  (诊断) seg① 100–250ns                 5       90       94       90      100      100      100      100        100
+  (诊断) seg① 250–500ns            735573       70       84       80       90      160      200      320       5140
+  (诊断) seg① 500ns–2µs           1459005       70       83       80       90      100      170      240       4010
+  (诊断) seg① ≥2µs                 560036       70       83       80       90      100      170      240       3690
+  (probe) ①取 mbuf               2754614       10       17       20       20       20       20       20       3410
+  (probe) ①写包                   2754614       10       18       20       20       20       30       30       5060
+  (probe) ①tx_burst             2754614       40       48       50       60       60      140      260       3970
+  (诊断) 维护: rte_timer_manage      299948       20       25       20       30       30       40      641       3020
+  (诊断) 维护: 整个节拍                  299948       50      301      190      883     1332     1467     2246      13900
 
-rx_burst 包数分布（非空 burst）：1:77.18%  2:18.43%  3:3.86%  4:0.52%  其余更大的 burst 共 61 次（最大一次 13 个包）
-主循环被外部打断：空轮询 > 1 µs 共 6552 次（累计 19.3 ms，最长 22.4 µs）；取包前 > 10 µs 共 4 次（累计 0.1 ms，最长 15.3 µs）
-port: ipackets 2590445  opackets 2590551  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
+段① ≥ 125 ns 的样本占 0.440%（段①是两段式分布，它的 p99 落在哪一段只看这个占比在 1% 的哪一边）
+rx_burst 包数分布（非空 burst）：1:78.75%  2:17.74%  3:3.16%  4:0.35%  其余更大的 burst 共 63 次（最大一次 32 个包）
+主循环被外部打断：空轮询 > 1 µs 共 6454 次（累计 19.9 ms，最长 20.7 µs）；取包前 > 10 µs 共 4 次（累计 0.1 ms，最长 15.2 µs）
+port: ipackets 2754620  opackets 2754726  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
 AWS allowance（本次运行增量）：bw_in_allowance_exceeded=0  bw_out_allowance_exceeded=0  pps_allowance_exceeded=0  conntrack_allowance_exceeded=0  linklocal_allowance_exceeded=0
 mbuf：pool 8191，初值 avail 8191（端口启动后 7168），关停后 avail 8191 → 泄漏 0 ✔
 退出原因：到达 --duration-sec，停止发送并等在途请求收尾
-[probe] tx_burst > 125 ns 的占比，按「发送计数 % 32」分（32 个 LLQ 条目 = 一个 4 KB 页）：0:0.38% 1:0.27% 2:0.34% 3:3.84% 4:0.32% 5:0.28% 6:0.36% 7:2.43% 8:0.29% 9:0.26% 10:0.23% 11:0.69% 12:0.27% 13:0.31% 14:0.28% 15:0.52% 16:0.30% 17:0.27% 18:0.27% 19:0.33% 20:0.25% 21:0.26% 22:0.27% 23:0.34% 24:0.25% 25:0.24% 26:0.27% 27:0.48% 28:0.29% 29:0.27% 30:0.28% 31:2.82%
+构建：commit ea2e92b1d3ac · rustc 1.98.1 (48a229cea 2026-09-01) · DPDK 25.11.3 · release · features: probe
+环境：AMD EPYC 9R45 · 内核 6.18.48-107.148.amzn2023.x86_64 · 网卡 0000:28:00.0 驱动 igb_uio（写合并映射：是）· clocksource tsc · rdtscp constant_tsc nonstop_tsc tsc_known_freq
+时钟：读一次 rdtscp 平均 17.7 ns（每个被测段恰好含一次）；TSC 读数步长 26 周期 = 10.0 ns（时间戳分辨率，所有时间差都是它的整数倍）；周期→纳秒换算与 CLOCK_MONOTONIC_RAW 相差 -0.7 ppm
+[probe] tx_burst > 125 ns 的占比，按「发送计数 % 32」分（32 个 LLQ 条目 = 一个 4 KB 页）：0:0.18% 1:0.21% 2:0.22% 3:0.59% 4:0.19% 5:0.19% 6:0.22% 7:0.84% 8:0.23% 9:0.22% 10:0.53% 11:2.32% 12:0.17% 13:0.20% 14:0.29% 15:1.10% 16:0.17% 17:0.18% 18:0.41% 19:0.87% 20:0.17% 21:0.19% 22:0.20% 23:0.60% 24:0.19% 25:0.19% 26:0.26% 27:0.48% 28:0.20% 29:0.19% 30:0.22% 31:0.51%
