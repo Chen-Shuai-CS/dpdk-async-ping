@@ -544,7 +544,7 @@ impl Report {
                 rx_total_ns: cycles_to_ns(stats.stalls.rx_total, tsc_hz),
                 rx_max_ns: cycles_to_ns(stats.stalls.rx_max, tsc_hz),
             },
-            diag: args.diag_pre_t0.iter().map(|d| d.name().to_string()).collect(),
+            diag: args.diag().iter().map(|d| d.name()).collect(),
             samples,
             env,
         }

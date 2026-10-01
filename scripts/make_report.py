@@ -316,6 +316,34 @@ def section_diag(a):
     return "\n".join(out)
 
 
+def section_stores(a):
+    """剂量实验：T0 之前多做 N 次普通写入。"""
+    d = os.path.join(ROOT, a.diag_dir)
+    runs = []
+    for p in glob.glob(os.path.join(d, "B-stores-*.json")):
+        with open(p) as f:
+            runs.append((int(os.path.basename(p).split("-")[2].split(".")[0]), "B", json.load(f)))
+    if not runs:
+        return "（未找到剂量实验结果）"
+    runs.sort(key=lambda x: x[0])
+    runs.insert(0, (0, "B", load(a.main_b)))
+    for p in sorted(glob.glob(os.path.join(d, "A-stores-*.json"))):
+        with open(p) as f:
+            runs.append((int(os.path.basename(p).split("-")[2].split(".")[0]), "A", json.load(f)))
+    runs.append((0, "A", load(a.main_a)))
+    out = ["| 客户端 | 读 T0 之前多做的写入次数 | 距上次发送 < 250 ns 的发送占比 | 这些发送的段①平均 | 段① p99 | 段① ≥ 125 ns 占比 | 段③ 平均 | 进程内 p99 |",
+           "|---|---|---|---|---|---|---|---|"]
+    for n, side, r in runs:
+        buckets = [m for m in r["metrics"] if "seg①" in m["name"] and "诊断" in m["name"]]
+        tot = metric(r, "seg①")["count"]
+        close = buckets[0]["count"] + buckets[1]["count"]
+        close_mean = (buckets[0]["mean"] * buckets[0]["count"] + buckets[1]["mean"] * buckets[1]["count"]) / close if close else float("nan")
+        label = "0（主考核）" if n == 0 else str(n)
+        out.append(f"| {side} | {label} | {100 * close / tot:.2f}% | {'—' if close < 100 else f'{close_mean:.0f} ns'} | {metric(r, 'seg①')['p99']} "
+                   f"| {r.get('seg1_slow_percent', float('nan')):.2f}% | {metric(r, 'seg③')['mean']:.0f} | {metric(r, 'in-process')['p99']} |")
+    return "\n".join(out)
+
+
 def section_fault(a):
     dirs = sorted(glob.glob(os.path.join(ROOT, "logs/fault/*/summary.md")))
     if not dirs:
@@ -367,8 +395,8 @@ def section_env(a):
 
 def sections_table():
     return (("main", section_main), ("totals", section_totals), ("ab", section_ab), ("c", section_c), ("probe", section_probe),
-            ("ci", section_ci), ("burst", section_burst), ("diag", section_diag), ("fault", section_fault), ("soak", section_soak),
-            ("env", section_env))
+            ("ci", section_ci), ("burst", section_burst), ("diag", section_diag), ("stores", section_stores), ("fault", section_fault),
+            ("soak", section_soak), ("env", section_env))
 
 
 def main():

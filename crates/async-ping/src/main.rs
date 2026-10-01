@@ -139,7 +139,7 @@ fn main() {
         dp.endpoints.dst_ip,
         dp.endpoints.src_mac,
         live.clone(),
-        args.diag_pre_t0,
+        args.diag(),
     ));
 
     *sh.stats.borrow_mut() = pingkit::Stats { samples, ..pingkit::Stats::with_hz(hz) };

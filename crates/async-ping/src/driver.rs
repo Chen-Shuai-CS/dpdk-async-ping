@@ -81,7 +81,7 @@ pub struct Shared {
     pub my_mac: [u8; 6],
     pub live: Arc<Live>,
     /// 诊断开关 `--diag-pre-t0`（默认 None）
-    pub diag_pre_t0: Option<pingkit::PreT0>,
+    pub diag_pre_t0: Option<pingkit::Diag>,
     /// 诊断：最近一次 Mailbox::put（含 wake）返回的时刻
     #[cfg(feature = "probe")]
     pub probe_put_done: Cell<u64>,
@@ -103,7 +103,7 @@ impl Shared {
         peer_ip: [u8; 4],
         my_mac: [u8; 6],
         live: Arc<Live>,
-        diag_pre_t0: Option<pingkit::PreT0>,
+        diag_pre_t0: Option<pingkit::Diag>,
     ) -> Shared {
         Shared {
             flows: (0..sessions).map(|_| Flow::new()).collect(),

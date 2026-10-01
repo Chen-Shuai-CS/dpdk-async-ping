@@ -21,7 +21,7 @@ pub mod samples;
 pub mod sender;
 pub mod stats;
 
-pub use args::{Args, PreT0};
+pub use args::{Args, Diag};
 pub use dataplane::Dataplane;
 pub use envinfo::EnvInfo;
 pub use dpdk::tsc::rdtsc;

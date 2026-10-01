@@ -64,10 +64,15 @@ pub struct Args {
     #[arg(long)]
     pub samples: Option<PathBuf>,
 
-    /// 诊断，结果不参与排名：读 T0 之前先执行一条栅栏指令。用来查明"紧跟在上一次发送之后的发送为什么慢"、
-    /// 以及把这段等待移到段①之外后 A − B 是多少。sfence：只约束写入顺序；mfence：等此前所有写入真正完成
+    /// 诊断，结果不参与排名：读 T0 之前先做一件事。用来查明"紧跟在上一次发送之后的发送为什么慢"、
+    /// 以及把这段等待移到段①之外后 A − B 是多少。
+    /// sfence：只约束写入顺序；mfence：等此前所有写入真正完成；stores：往栈上写 --diag-stores 个字（不等任何东西）
     #[arg(long, value_enum)]
     pub diag_pre_t0: Option<PreT0>,
+
+    /// `--diag-pre-t0 stores` 写多少个 8 字节的字
+    #[arg(long, default_value_t = 128)]
+    pub diag_stores: usize,
 
     /// RX / TX 描述符数量
     #[arg(long, default_value_t = 1024)]
@@ -89,23 +94,47 @@ pub struct Args {
 pub enum PreT0 {
     Sfence,
     Mfence,
+    Stores,
 }
 
-impl PreT0 {
+/// `--diag-pre-t0` 解析后的形式（`stores` 带上要写的字数）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Diag {
+    Sfence,
+    Mfence,
+    Stores(usize),
+}
+
+/// `stores` 模式最多写这么多个字（一个固定大小的栈上数组）。
+pub const DIAG_STORES_MAX: usize = 512;
+
+impl Diag {
     /// 冷路径：只有打开诊断开关时才会走到。
     #[cold]
     #[inline(never)]
     pub fn run(self) {
         match self {
-            PreT0::Sfence => dpdk::tsc::sfence(),
-            PreT0::Mfence => dpdk::tsc::mfence(),
+            Diag::Sfence => dpdk::tsc::sfence(),
+            Diag::Mfence => dpdk::tsc::mfence(),
+            Diag::Stores(n) => {
+                // 连续写 n 个互不相同的地址：每次写入在 CPU 的写入队列（store queue）里占一个位置。
+                // 这里不等待任何东西；如果队首被一次很慢的设备写入堵着，队列被填满后 CPU 才不得不停下来等。
+                // 数组不做初始化（否则清零本身就是几十上百次写入，n 就不是唯一的变量了）。
+                let mut buf = [const { std::mem::MaybeUninit::<u64>::uninit() }; DIAG_STORES_MAX];
+                for (i, slot) in buf.iter_mut().take(n).enumerate() {
+                    // SAFETY: slot 指向数组里一个有效、独占的位置；用 volatile 写是为了不让编译器把这些写入合并或删掉。
+                    unsafe { std::ptr::write_volatile(slot.as_mut_ptr(), i as u64) };
+                }
+                std::hint::black_box(&buf);
+            }
         }
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
-            PreT0::Sfence => "sfence-before-t0",
-            PreT0::Mfence => "mfence-before-t0",
+            Diag::Sfence => "sfence-before-t0".into(),
+            Diag::Mfence => "mfence-before-t0".into(),
+            Diag::Stores(n) => format!("{n}-stores-before-t0"),
         }
     }
 }
@@ -128,6 +157,15 @@ impl Args {
 }
 
 impl Args {
+    /// 诊断开关（默认 None）。
+    pub fn diag(&self) -> Option<Diag> {
+        self.diag_pre_t0.map(|d| match d {
+            PreT0::Sfence => Diag::Sfence,
+            PreT0::Mfence => Diag::Mfence,
+            PreT0::Stores => Diag::Stores(self.diag_stores.min(DIAG_STORES_MAX)),
+        })
+    }
+
     /// `--samples` 的缓冲区容量（样本数）；没开则为 0。
     /// 按"每个 session 每 (delay + 20 µs) 完成一个请求"估上限（实际往返至少 60 µs），再留 5% 余量。
     pub fn sample_capacity(&self) -> usize {
@@ -235,7 +273,11 @@ mod tests {
         let a = args(&[]).unwrap();
         assert_eq!((a.sessions, a.payload, a.timeout_us), (64, 64, 10_000));
         assert!(a.diag_pre_t0.is_none() && a.samples.is_none() && a.sample_capacity() == 0);
-        assert_eq!(args(&["--diag-pre-t0", "mfence"]).unwrap().diag_pre_t0, Some(PreT0::Mfence));
+        assert_eq!(a.diag(), None);
+        assert_eq!(args(&["--diag-pre-t0", "mfence"]).unwrap().diag(), Some(Diag::Mfence));
+        assert_eq!(args(&["--diag-pre-t0", "stores"]).unwrap().diag(), Some(Diag::Stores(128)));
+        assert_eq!(args(&["--diag-pre-t0", "stores", "--diag-stores", "9999"]).unwrap().diag(), Some(Diag::Stores(DIAG_STORES_MAX)));
+        Diag::Stores(64).run();
         assert!(args(&["--diag-pre-t0", "bogus"]).is_err());
     }
 

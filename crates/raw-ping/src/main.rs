@@ -79,7 +79,7 @@ struct Raw {
     timeout: u64,
     stopping: bool,
     /// 诊断开关 `--diag-pre-t0`（默认 None）
-    diag_pre_t0: Option<pingkit::PreT0>,
+    diag_pre_t0: Option<pingkit::Diag>,
     /// 构建信息与运行环境（只在最后写报告时用）
     env: pingkit::EnvInfo,
 }
@@ -251,7 +251,7 @@ fn main() {
         delay,
         timeout: ns_to_cycles(args.timeout_us * 1000, hz),
         stopping: false,
-        diag_pre_t0: args.diag_pre_t0,
+        diag_pre_t0: args.diag(),
         env,
     };
     for (i, s) in raw.sessions.iter().enumerate() {

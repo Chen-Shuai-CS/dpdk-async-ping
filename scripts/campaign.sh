@@ -7,7 +7,8 @@
 # 阶段（按顺序）：
 #   main   主考核：A、B 各 600 秒，同时导出原始样本 → 置信区间（logs/final/）
 #   ab     A / B 交替 10 对 × 60 秒（logs/ab-<时间>/）
-#   diag   诊断口径：读 T0 前 mfence（A、B 各 300 秒 + 置信区间）、sfence（各 60 秒）（logs/diag/）
+#   diag   诊断口径：读 T0 前 mfence（A、B 各 300 秒 + 置信区间）、sfence（各 60 秒）、
+#          "T0 前多做 N 次普通写入"的剂量实验（logs/diag/）
 #   aux    辅助对比：delay 800 µs 的 A / B、单路的 A（logs/final/）
 #   fault  故障注入矩阵（logs/fault/<时间>/）
 #   soak   长时间运行：A、B 各 30 分钟（logs/soak/）
@@ -42,6 +43,11 @@ if want diag; then
     python3 scripts/ci.py --a logs/tmp/A-mfence.samples --b logs/tmp/B-mfence.samples --out logs/diag/ci-mfence.json
     run A logs/diag/A-sfence --delay-us 500 --duration-sec 60 --diag-pre-t0 sfence
     run B logs/diag/B-sfence --delay-us 500 --duration-sec 60 --diag-pre-t0 sfence
+    # 剂量实验：读 T0 之前多做 N 次普通的内存写入（不带任何栅栏指令），看 B 的"背靠背发送"的等待在 N 多大时移到 T0 之前
+    for n in 8 16 32 36 40 44 48 64 128; do
+        run B "logs/diag/B-stores-$n" --delay-us 500 --duration-sec 20 --diag-pre-t0 stores --diag-stores "$n"
+    done
+    run A logs/diag/A-stores-64 --delay-us 500 --duration-sec 20 --diag-pre-t0 stores --diag-stores 64
 fi
 if want aux; then
     run A logs/final/A-d800 --delay-us 800 --duration-sec 60
