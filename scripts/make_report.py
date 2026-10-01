@@ -57,7 +57,20 @@ def section_totals(a):
         ("发送侧合计：③ + ①（发现到期 → T1）", s1a + s3a, s1b + s3b, False),
         ("**自己代码的全部时间：① + ② + ③**", s1a + s2a + s3a, s1b + s2b + s3b, True),
     ]
-    out = ["| 每个请求的平均耗时（ns） | A | B | A − B |", "|---|---|---|---|"]
+    notes = {("B", "seg1"): "<- includes the NIC wait", ("A", "seg3"): "<- scheduling lands here (not ranked)",
+             ("A", "seg2"): "<- the runtime's tax"}
+    bars = []
+    for lab, vals in (("B", (s3b, s1b, s2b)), ("A", (s3a, s1a, s2a))):
+        for i, (seg, v) in enumerate(zip(("seg3", "seg1", "seg2"), vals)):
+            line = (f"{lab if i == 0 else ' '}  {seg} |" + "#" * round(v / 10)).ljust(26) + f"{v:6.1f}"
+            bars.append(line + ("  " + notes[(lab, seg)] if (lab, seg) in notes else ""))
+        tot = sum(vals)
+        tail = f"  <- A - B = {tot - (s1b + s2b + s3b):+.1f} ns per request" if lab == "A" else ""
+        bars.append("   total".ljust(26) + f"{tot:6.1f}" + tail)
+        if lab == "B":
+            bars.append("")
+    out = ["每个请求的平均耗时落在哪一段（ns；1 个 `#` ≈ 10 ns）：\n", "```text", *bars, "```", "",
+           "| 每个请求的平均耗时（ns） | A | B | A − B |", "|---|---|---|---|"]
     for name, x, y, bold in rows:
         diff = f"**{x - y:+.1f}**" if bold else f"{x - y:+.1f}"
         out.append(f"| {name} | {x:.1f} | {y:.1f} | {diff} |")
