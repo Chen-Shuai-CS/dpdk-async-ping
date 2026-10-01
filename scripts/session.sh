@@ -2,6 +2,7 @@
 # 一次独立的"测量会话"：在一次新的开机（或另一天）里，把最核心的两组数据重测一遍，结果单独存放，不覆盖正式数据。
 #
 #   scripts/session.sh <名字> [连续监测的分钟数=60]        例如：scripts/session.sh day2
+#   SESSION_VERSION=v1 scripts/session.sh day2-v1          用某个历史版本（git 标签）的二进制跑同样的会话
 #
 # 做的事（约 45 分钟 + 连续监测）：
 #   1. 绑定网卡、环境自检（任何一项不满足就停下）
@@ -25,7 +26,14 @@ scripts/bind.sh > "$out/bind.txt" 2>&1 || die "绑定网卡失败（见 $out/bin
 scripts/check-env.sh > "$out/check-env.txt" 2>&1 || die "环境自检未通过（见 $out/check-env.txt）"
 log "环境自检通过"
 
-scripts/write_meta.py "$out/meta.json" "$name"
+# 指定了历史版本：把它编译到仓库之外，之后所有的 run.sh 都用那份二进制（B 的代码在各版本里相同）
+ver=${SESSION_VERSION:-}
+if [[ -n "$ver" ]]; then
+    BQ_BIN_DIR=$(scripts/build-version.sh "$ver"); export BQ_BIN_DIR
+    scripts/write_meta.py "$out/meta.json" "$name" --version "$ver" --commit "$(git rev-parse --short=12 "$ver^{commit}")"
+else
+    scripts/write_meta.py "$out/meta.json" "$name"
+fi
 
 run() {
     local c=$1 o=$2; shift 2
