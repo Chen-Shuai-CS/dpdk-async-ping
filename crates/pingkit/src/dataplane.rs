@@ -21,6 +21,27 @@ pub struct Dataplane {
     pub avail_initial: u32,
     /// 端口启动后（RX 环已预投递）的可用数，仅供报告参考
     pub avail_after_start: u32,
+    /// 单实例锁：持有到进程结束
+    _lock: Option<std::fs::File>,
+}
+
+/// 同一张网卡同一时刻只允许一个进程驱动。
+///
+/// igb_uio 不阻止第二个进程再次打开同一个设备；两个进程各自初始化队列、各自敲 doorbell，
+/// 会互相破坏对方的收发环（表现为丢包、收到别人的包，甚至网卡 reset）。所以启动时先拿一把文件锁，拿不到就拒绝启动。
+/// 锁随进程结束自动释放（包括崩溃、被 kill），不会留下需要手工清理的残留。
+fn instance_lock(pci: &str) -> Result<Option<std::fs::File>, String> {
+    let path = format!("/run/bqping-{pci}.lock");
+    let Ok(f) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path) else {
+        return Ok(None); // 没有权限创建锁文件（非 root）：后面的 EAL 初始化自会报错
+    };
+    match f.try_lock() {
+        Ok(()) => Ok(Some(f)),
+        Err(std::fs::TryLockError::WouldBlock) => Err(format!(
+            "网卡 {pci} 正被另一个 async-ping / raw-ping 进程使用（锁文件 {path}）。两个进程同时驱动同一张网卡会互相破坏收发队列，已拒绝启动"
+        )),
+        Err(std::fs::TryLockError::Error(e)) => Err(format!("无法锁定 {path}：{e}")),
+    }
 }
 
 /// 零 mbuf 泄漏核对结果。
@@ -45,6 +66,7 @@ impl Dataplane {
         let src_ip = parse_ipv4(&args.src_ip).ok_or("本端 IP 格式错误")?;
         let dst_ip = parse_ipv4(&args.dst_ip).ok_or("对端 IP 格式错误")?;
 
+        let lock = instance_lock(&args.pci)?;
         let eal = Eal::init(&args.eal_args()).map_err(|e| e.to_string())?;
         let pool = Mempool::create_pktmbuf_pool("bq_pool", args.mbufs, MEMPOOL_CACHE, DATA_ROOM, 0)
             .map_err(|e| e.to_string())?;
@@ -61,7 +83,7 @@ impl Dataplane {
         let avail_after_start = pool.avail_count();
         let endpoints = Endpoints { src_mac: port.mac(), dst_mac, src_ip, dst_ip };
         let tmpl = EchoTemplate::new(&endpoints, args.payload);
-        Ok(Dataplane { eal, pool, port, endpoints, tmpl, hz: dpdk::tsc::hz(), avail_initial, avail_after_start })
+        Ok(Dataplane { eal, pool, port, endpoints, tmpl, hz: dpdk::tsc::hz(), avail_initial, avail_after_start, _lock: lock })
     }
 
     /// 关停端口并核对 mbuf。**调用前必须已经 drop 掉程序持有的所有 Mbuf**（task、信箱、held reply）。

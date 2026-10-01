@@ -1,7 +1,8 @@
 //! runtime 的单元测试：用 `Runtime::run_offline()`（不驱动网卡），不需要 DPDK / 网卡 / root。
 //!
 //! 覆盖：timer 顺序与精度、Mailbox 交接、poll 期间自唤醒不丢、过期 waker 不误伤新任务、
-//! 丢弃 runtime 时释放未完成 task 持有的资源、取消的 sleep、死锁检测。
+//! 丢弃 runtime 时释放未完成 task 持有的资源、取消的 sleep、死锁检测、
+//! 在别的线程 / 别的 runtime 上调用 Waker 会 abort（在子进程里验证）。
 
 use rt::sync::Mailbox;
 use rt::{sleep, Runtime, RuntimeConfig};
@@ -212,4 +213,87 @@ fn deadlock_is_detected() {
     let r = runtime(2);
     r.spawn(std::future::pending::<()>());
     r.run_offline();
+}
+
+// ---------------------------------------------------------------------------
+// Waker 被带到别处调用
+//
+// std 规定 Waker 是 Send + Sync，类型系统拦不住"把它送到别的线程再 wake"。本 runtime 的就绪队列
+// 不是线程安全的，所以约定：这种用法直接 abort 整个进程（宁可立刻停下，也不带着数据竞争继续跑）。
+// abort 没法在同一个进程里断言，所以让测试程序把自己再启动一遍：子进程里真的去触发，父进程检查它是被 SIGABRT 杀死的。
+// ---------------------------------------------------------------------------
+
+/// 第一次 poll 时把自己的 Waker 交出去，然后睡一会儿（让"别处"有时间调用它）。
+async fn publish_waker_then_sleep(out: std::sync::Arc<std::sync::Mutex<Option<Waker>>>, sleep_us: u64) {
+    std::future::poll_fn(|cx| {
+        *out.lock().unwrap() = Some(cx.waker().clone());
+        Poll::Ready(())
+    })
+    .await;
+    sleep(us(sleep_us)).await;
+}
+
+const CHILD_ENV: &str = "RT_TEST_FOREIGN_WAKE";
+
+fn run_self_expecting_abort(test_name: &str, expect_in_stderr: &str) {
+    use std::os::unix::process::ExitStatusExt;
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test_name, "--nocapture", "--test-threads=1"])
+        .env(CHILD_ENV, "1")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.signal(), Some(6), "子进程应当被 SIGABRT 终止，实际：{:?}\n{stderr}", out.status);
+    assert!(stderr.contains(expect_in_stderr), "stderr 里应当说明原因：{stderr}");
+}
+
+#[test]
+fn wake_from_another_thread_aborts() {
+    if std::env::var_os(CHILD_ENV).is_none() {
+        return run_self_expecting_abort("wake_from_another_thread_aborts", "别的线程");
+    }
+    // ---- 子进程 ----
+    let r = runtime(2);
+    let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+    r.spawn(publish_waker_then_sleep(slot.clone(), 200_000));
+    let t = std::thread::spawn(move || loop {
+        if let Some(w) = slot.lock().unwrap().take() {
+            w.wake(); // 预期：这一行 abort 整个进程
+            return;
+        }
+        std::thread::yield_now();
+    });
+    r.run_offline();
+    t.join().unwrap();
+    // 走到这里说明没有 abort：子进程正常退出，父进程的断言会失败
+}
+
+#[test]
+fn wake_from_inside_another_runtime_aborts() {
+    if std::env::var_os(CHILD_ENV).is_none() {
+        return run_self_expecting_abort("wake_from_inside_another_runtime_aborts", "另一个 runtime");
+    }
+    // ---- 子进程：同一个线程，但在 runtime B 的 task 里调用 runtime A 的 Waker ----
+    let a = runtime(2);
+    let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+    a.spawn(publish_waker_then_sleep(slot.clone(), 0));
+    a.run_offline(); // A 跑完；它的 Waker 留在 slot 里
+    let b = runtime(2);
+    b.spawn(async move {
+        slot.lock().unwrap().take().unwrap().wake(); // 预期：abort
+    });
+    b.run_offline();
+}
+
+/// runtime 已经结束之后，在**同一个线程**上迟到的 wake 是无害的（关停阶段常见）：不 abort、不做任何事。
+#[test]
+fn late_wake_after_runtime_finished_is_ignored() {
+    let r = runtime(2);
+    let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+    r.spawn(publish_waker_then_sleep(slot.clone(), 0));
+    r.run_offline();
+    let w = slot.lock().unwrap().take().unwrap();
+    w.wake_by_ref();
+    drop(r);
+    w.wake();
 }

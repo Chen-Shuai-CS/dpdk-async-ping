@@ -30,6 +30,9 @@ const TX_RETRY_NS: u64 = 1_000;
 /// 随后调用与 B 相同的发送函数。成功后登记"在等 seq"。TX 环满等罕见情况下 sleep 1 µs 重试。
 async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
     loop {
+        if let Some(d) = sh.diag_pre_t0 {
+            d.run(); // 诊断开关（默认关）：见 Args::diag_pre_t0。在 T0 之前，不在任何被测段里
+        }
         let t0 = rdtsc(); // T0
         match with_port(|p| sh.sender.send(p, t0, id, seq)) {
             Ok(stamp) => {
@@ -64,8 +67,9 @@ async fn wait_reply(sh: &Shared, id: u16, seq: u16) -> Result<Reply, Timeout> {
 fn record(sh: &Shared, id: u16, seq: u16, stamp: Stamp, reply: Result<Reply, Timeout>, t3: u64) {
     if let Ok(reply) = reply {
         let mut st = sh.stats.borrow_mut();
-        st.on_reply(stamp, reply.t2, t3);
-        st.verify_echo(stamp, reply.tx_tsc, id, seq);
+        if st.verify_echo(stamp, reply.tx_tsc, id, seq) {
+            st.on_reply(stamp, reply.t2, t3);
+        }
     } // Err(Timeout)：已由 driver 计为丢失，不进入延迟分布
 }
 
@@ -114,6 +118,8 @@ fn main() {
         std::process::exit(2);
     });
     let hz = dp.hz;
+    let env = pingkit::EnvInfo::collect(&args, hz);
+    let samples = pingkit::samples::SampleLog::with_capacity(args.sample_capacity());
     let xstats_before = dp.port.xstats();
     let live = Arc::new(Live::default());
     let reporter = live::spawn_reporter(live.clone(), args.report_core, Duration::from_secs(args.progress_sec), "A async");
@@ -133,9 +139,10 @@ fn main() {
         dp.endpoints.dst_ip,
         dp.endpoints.src_mac,
         live.clone(),
+        args.diag_pre_t0,
     ));
 
-    *sh.stats.borrow_mut() = pingkit::Stats::with_hz(hz);
+    *sh.stats.borrow_mut() = pingkit::Stats { samples, ..pingkit::Stats::with_hz(hz) };
     let rt = Runtime::new(RuntimeConfig {
         max_tasks: n + 8,
         max_timers: 2 * n + 8,
@@ -187,8 +194,8 @@ fn main() {
     let stats = std::mem::take(&mut *sh.stats.borrow_mut());
     drop(sh);
     let (eal, mbuf) = dp.shutdown();
-    Report::new("A · async-ping（自研 rt runtime）", &args, elapsed, &stats, hz, port, mbuf, exit_reason)
-        .emit(args.json.as_deref());
+    Report::new("A · async-ping（自研 rt runtime）", &args, elapsed, &stats, hz, port, mbuf, exit_reason, env)
+        .emit(args.json.as_deref(), &stats);
     // SAFETY: runtime、task、信箱都已释放，端口已关闭；此后不再访问任何 DPDK 对象。
     unsafe { eal.cleanup() };
     std::process::exit(if mbuf.leaked() == 0 { 0 } else { 3 });

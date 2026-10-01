@@ -30,16 +30,27 @@ ts=$(date +%Y%m%d-%H%M%S)
 log_file="$REPO_ROOT/logs/$tag-$ts.log"
 json_file="$REPO_ROOT/logs/$tag-$ts.json"
 json_arg=(--json "$json_file")
+samples_file=""; prev=""
 for a in "$@"; do
     if [[ "$a" == --json* ]]; then json_arg=(); json_file="（由调用者指定）"; fi
+    if [[ "$prev" == --samples ]]; then samples_file=$a; fi
+    prev=$a
 done
 log "运行 $tag（$bin）$*  → $log_file"
+prev_j=""
 set +e
 sudo "$REPO_ROOT/target/release/$bin" \
     --pci "$DPDK_PCI" --src-ip "$DPDK_IP" --dst-ip "$PEER_IP" --dst-mac "$PEER_MAC" \
     --lcore "$DPDK_LCORE" "${json_arg[@]}" "$@" 2>&1 | tee "$log_file"
 rc=${PIPESTATUS[0]}
 set -e
-sudo chown "$(id -u):$(id -g)" "$json_file" 2>/dev/null || true
+# 程序以 root 运行，它写出的文件交还给当前用户
+for f in "$json_file" "$samples_file"; do
+    [[ -f "$f" ]] && sudo chown "$(id -u):$(id -g)" "$f"
+done
+for a in "$@"; do   # 调用者自己指定的 --json 路径
+    [[ "$prev_j" == --json && -f "$a" ]] && sudo chown "$(id -u):$(id -g)" "$a"
+    prev_j=$a
+done
 log "退出码 $rc；报告：$json_file"
 exit "$rc"

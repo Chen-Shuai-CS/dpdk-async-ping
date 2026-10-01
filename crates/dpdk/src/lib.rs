@@ -21,3 +21,6 @@ pub use error::{Error, Result};
 pub use mbuf::Mbuf;
 pub use mempool::Mempool;
 pub use port::{Port, PortStats, RxBurst, RX_BURST_MAX};
+
+/// 构建时链接的 DPDK 版本。
+pub const DPDK_VERSION: &str = dpdk_sys::DPDK_VERSION;

@@ -78,6 +78,10 @@ struct Raw {
     delay: u64,
     timeout: u64,
     stopping: bool,
+    /// 诊断开关 `--diag-pre-t0`（默认 None）
+    diag_pre_t0: Option<pingkit::PreT0>,
+    /// 构建信息与运行环境（只在最后写报告时用）
+    env: pingkit::EnvInfo,
 }
 
 impl Raw {
@@ -161,8 +165,9 @@ impl Raw {
             }
             // SPEC 的 loop 形状：sleep 结束后才 record(reply)，然后 reply（mbuf）被释放
             if let Some(h) = s.held.take() {
-                self.stats.on_reply(h.stamp, h.t2, h.t3);
-                self.stats.verify_echo(h.stamp, h.tx_tsc, id as u16, h.seq);
+                if self.stats.verify_echo(h.stamp, h.tx_tsc, id as u16, h.seq) {
+                    self.stats.on_reply(h.stamp, h.t2, h.t3);
+                }
                 drop(h.mbuf);
             }
             if self.stopping {
@@ -170,6 +175,9 @@ impl Raw {
                 continue;
             }
             let seq = s.next_seq;
+            if let Some(d) = self.diag_pre_t0 {
+                d.run(); // 诊断开关（默认关）：见 Args::diag_pre_t0。在 T0 之前，不在任何被测段里
+            }
             let t0 = rdtsc(); // T0：record 之后、发送之前——与 A 的 send() 入口是同一个位置
             match self.sender.send(&self.dp.port, t0, id as u16, seq) {
                 Ok(stamp) => {
@@ -221,6 +229,8 @@ fn main() {
         std::process::exit(2);
     });
     let hz = dp.hz;
+    let env = pingkit::EnvInfo::collect(&args, hz);
+    let samples = pingkit::samples::SampleLog::with_capacity(args.sample_capacity());
     let xstats_before = dp.port.xstats();
     let live = Arc::new(Live::default());
     let reporter = live::spawn_reporter(live.clone(), args.report_core, Duration::from_secs(args.progress_sec), "B raw");
@@ -236,11 +246,13 @@ fn main() {
         // 初始相位：session 均匀错开在一个 delay 周期内，避免同时发、同时回
         sessions: (0..n).map(|i| Session::new(start + delay * i as u64 / n as u64)).collect(),
         timers: TimerHeap::with_capacity(2 * n),
-        stats: Stats::with_hz(hz),
+        stats: Stats { samples, ..Stats::with_hz(hz) },
         burst: RxBurst::new(),
         delay,
         timeout: ns_to_cycles(args.timeout_us * 1000, hz),
         stopping: false,
+        diag_pre_t0: args.diag_pre_t0,
+        env,
     };
     for (i, s) in raw.sessions.iter().enumerate() {
         if let State::Sleeping { deadline } = s.state {
@@ -307,13 +319,13 @@ fn finish(
     raw.stats.c.in_flight_at_end =
         raw.sessions.iter().filter(|s| matches!(s.state, State::Waiting { .. })).count() as u64;
     let port = port_summary(&raw.dp.port, &xstats_before);
-    let (stats, hz) = (raw.stats, raw.dp.hz);
+    let (stats, hz, env) = (raw.stats, raw.dp.hz, raw.env);
     // 释放程序持有的所有 mbuf：session 里 held 的 reply、RxBurst 里未取走的包
     drop(raw.sessions);
     drop(raw.burst);
     let (eal, mbuf) = raw.dp.shutdown();
-    Report::new("B · raw-ping（手写 busy-poll，无 runtime）", args, elapsed, &stats, hz, port, mbuf, exit_reason)
-        .emit(args.json.as_deref());
+    Report::new("B · raw-ping（手写 busy-poll，无 runtime）", args, elapsed, &stats, hz, port, mbuf, exit_reason, env)
+        .emit(args.json.as_deref(), &stats);
     // SAFETY: 所有 Mbuf / Port 都已释放或关闭，mempool 此后不再被访问。
     unsafe { eal.cleanup() };
     std::process::exit(if mbuf.leaked() == 0 { 0 } else { 3 });

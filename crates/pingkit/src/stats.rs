@@ -1,7 +1,9 @@
 use crate::dataplane::LeakReport;
 use crate::Args;
 use dpdk::Port;
+use crate::envinfo::EnvInfo;
 use crate::hist::Hist;
+use crate::samples::SampleLog;
 use crate::sender::Stamp;
 use dpdk::tsc::cycles_to_ns;
 use dpdk::RX_BURST_MAX;
@@ -22,7 +24,8 @@ pub struct Counters {
     pub unexpected: u64,
     /// 源 IP 不是对端的 echo reply：不是对我们任何请求的应答，绝不交给 session
     pub foreign: u64,
-    /// 回复里带回的发送时间戳 ≠ 我们发这个请求时写入的 T0（重复包 / 损坏 / 伪造）
+    /// 回复里带回的发送时间戳 ≠ 我们发这个请求时写入的 T0（重复包 / 损坏 / 伪造）。
+    /// 这样的回复已计入 received，但**不进入延迟分布**：样本数 = received − tsc_mismatch
     pub tsc_mismatch: u64,
     /// 其他与本程序无关的帧（非 IPv4/ARP、不是给我的……）
     pub other_rx: u64,
@@ -74,9 +77,14 @@ pub struct Stats {
     pub c: Counters,
     /// 异常包明细（unexpected 等），最多记录 [`ANOMALY_LOG_MAX`] 条，冷路径
     pub anomalies: Vec<String>,
+    /// 可选的逐样本原始记录（`--samples`）；没开时容量为 0，`push` 什么都不做
+    pub samples: SampleLog,
 }
 
 pub const ANOMALY_LOG_MAX: usize = 16;
+
+/// 段①"慢"的分界线（见 [`Report::seg1_slow_percent`]）。
+pub const SEG1_SLOW_NS: u64 = 125;
 
 /// 主循环停顿的判定阈值（见 `dpdk::tsc::StallWatch`）：
 /// 一轮什么都没干的空轮询正常只要几十纳秒，超过 1 µs 就说明被外部打断了；
@@ -106,6 +114,7 @@ impl Default for Stats {
             burst_sizes: [0; RX_BURST_MAX + 1],
             c: Counters::default(),
             anomalies: Vec::new(),
+            samples: SampleLog::default(),
         }
     }
 }
@@ -140,6 +149,7 @@ impl Stats {
         self.seg2.record(s2);
         self.inproc.record(s1 + s2);
         self.e2e.record(t3.saturating_sub(s.t0));
+        self.samples.push(s1, s2, t2);
     }
 
     /// 一次 sleep 结束：deadline、timer 发现到期的时刻、随后的下一个 T0。
@@ -155,16 +165,20 @@ impl Stats {
     }
 
     /// 在 record(reply) 时核对：回复带回的时间戳必须等于我们发这个请求时写入的 T0。
-    /// 放在 sleep 之后，不在任何被测段里。
+    /// 放在 sleep 之后，不在任何被测段里。返回 false 表示对不上：调用方**不得**把它计入延迟分布
+    /// （它不是这个请求的应答，用它算出来的延迟没有意义）。
     #[inline]
-    pub fn verify_echo(&mut self, s: Stamp, echoed_tsc: u64, id: u16, seq: u16) {
-        if echoed_tsc != s.t0 {
-            self.c.tsc_mismatch += 1;
-            self.note_anomaly(format_args!(
-                "tsc_mismatch：id={id} seq={seq}，回复带回的 TSC={echoed_tsc}，我们写入的 T0={}",
-                s.t0
-            ));
+    #[must_use]
+    pub fn verify_echo(&mut self, s: Stamp, echoed_tsc: u64, id: u16, seq: u16) -> bool {
+        if echoed_tsc == s.t0 {
+            return true;
         }
+        self.c.tsc_mismatch += 1;
+        self.note_anomaly(format_args!(
+            "tsc_mismatch：id={id} seq={seq}，回复带回的 TSC={echoed_tsc}，我们写入的 T0={}；该样本不进入延迟分布",
+            s.t0
+        ));
+        false
     }
 
     /// `probe` 构建的附加诊断文本。
@@ -198,7 +212,8 @@ impl Stats {
         self.burst_sizes[n] += 1;
     }
 
-    pub fn rows(&self, hz: u64) -> Vec<MetricRow> {
+    /// `step` = TSC 读数步长（周期），用于插值分位数。
+    pub fn rows(&self, hz: u64, step: u64) -> Vec<MetricRow> {
         [
             ("in-process ①+②  [排名指标]", &self.inproc),
             ("seg① send  T1−T0", &self.seg1),
@@ -222,7 +237,7 @@ impl Stats {
             ("  (诊断) 维护: 整个节拍", &self.house_total),
         ]
         .into_iter()
-        .map(|(name, h)| MetricRow::from_hist(name, h, hz))
+        .map(|(name, h)| MetricRow::from_hist(name, h, hz, step))
         .collect()
     }
 }
@@ -240,11 +255,19 @@ pub struct MetricRow {
     pub p99_9: u64,
     pub p99_99: u64,
     pub max: u64,
+    /// 插值分位数（ns，带小数）：不受"时间戳每 10 ns 才跳一步"的限制，见 `Hist::quantile_interp`。
+    /// 只写进 JSON，供离线对比 A − B 时使用；屏幕上的表仍是上面的普通分位数。
+    pub p50_interp: f64,
+    pub p90_interp: f64,
+    pub p99_interp: f64,
+    pub p99_9_interp: f64,
+    pub p99_99_interp: f64,
 }
 
 impl MetricRow {
-    fn from_hist(name: &str, h: &Hist, hz: u64) -> MetricRow {
+    fn from_hist(name: &str, h: &Hist, hz: u64, step: u64) -> MetricRow {
         let ns = |c: u64| cycles_to_ns(c, hz);
+        let interp = |q: f64| (h.quantile_interp(q, step) * 1e10 / hz as f64).round() / 10.0;
         MetricRow {
             name: name.to_string(),
             count: h.count(),
@@ -256,6 +279,11 @@ impl MetricRow {
             p99_9: ns(h.quantile(0.999)),
             p99_99: ns(h.quantile(0.9999)),
             max: ns(h.max()),
+            p50_interp: interp(0.50),
+            p90_interp: interp(0.90),
+            p99_interp: interp(0.99),
+            p99_9_interp: interp(0.999),
+            p99_99_interp: interp(0.9999),
         }
     }
 }
@@ -283,6 +311,24 @@ pub struct Report {
     pub probe_notes: Vec<String>,
     /// 主循环空转停顿（空轮询间隔超过阈值）：次数、累计时长、最长一次
     pub stalls: StallSummary,
+    /// 段① ≥ [`SEG1_SLOW_NS`] 的样本占比（%）。段①的分布是两段式的：绝大多数约 50 ns，少数（等网卡）在 150 ns 以上，
+    /// 中间几乎没有样本。所以段①的 p99 落在哪一段，只取决于这个占比在 1% 的哪一边
+    pub seg1_slow_percent: f64,
+    /// 启用的诊断开关（非空 = 这份结果**不参与排名**）
+    pub diag: Vec<String>,
+    /// `--samples`：原始样本文件
+    pub samples: Option<SamplesInfo>,
+    /// 构建信息与运行环境
+    pub env: EnvInfo,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SamplesInfo {
+    pub path: String,
+    pub count: u64,
+    pub capacity: u64,
+    /// 缓冲区写满之后没有记录下来的样本数
+    pub dropped: u64,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -316,6 +362,9 @@ impl Report {
         let c = &self.counters;
         println!();
         println!("==================== {} ====================", self.client);
+        if !self.diag.is_empty() {
+            println!("★ 诊断运行（{}）：这份结果不参与 A − B 排名", self.diag.join("、"));
+        }
         println!(
             "sessions {}  delay {} µs  duration {} s (实际 {:.2} s)  payload {} B  timeout {} µs  TSC {:.3} GHz",
             self.sessions, self.delay_us, self.duration_sec, self.elapsed_sec, self.payload, self.timeout_us,
@@ -331,6 +380,10 @@ impl Report {
             "对账：sent − received − timeouts − in-flight = {lost}（应为 0）；丢包 = timeouts = {}（其中 {} 个迟到收到）",
             c.timeouts, c.late
         );
+        let samples = self.metrics.first().map_or(0, |m| m.count);
+        if samples != c.received - c.tsc_mismatch {
+            println!("样本对账：延迟样本 {samples} ≠ received − tsc-mismatch = {}（提前退出时，尚在 sleep 的 session 手里的回复不会被记录）", c.received - c.tsc_mismatch);
+        }
         // 收到的每个包必须恰好落入一类
         let rx_diff = c.rx_pkts as i64
             - (c.received + c.late + c.unexpected + c.foreign + c.other_rx + c.arp_replies) as i64;
@@ -350,6 +403,10 @@ impl Report {
             );
         }
         println!();
+        println!(
+            "段① ≥ {SEG1_SLOW_NS} ns 的样本占 {:.3}%（段①是两段式分布，它的 p99 落在哪一段只看这个占比在 1% 的哪一边）",
+            self.seg1_slow_percent
+        );
         let total: u64 = self.burst_sizes.iter().map(|(_, n)| n).sum();
         let pct = |n: u64| 100.0 * n as f64 / total.max(1) as f64;
         let bs: Vec<String> =
@@ -391,6 +448,16 @@ impl Report {
             if leak == 0 { "✔" } else { "✘" }
         );
         println!("退出原因：{}", self.exit_reason);
+        self.env.print();
+        if let Some(s) = &self.samples {
+            println!(
+                "原始样本：{} 个 → {}（容量 {}{}）",
+                s.count,
+                s.path,
+                s.capacity,
+                if s.dropped > 0 { format!("，写满后有 {} 个未记录", s.dropped) } else { String::new() }
+            );
+        }
         for n in &self.probe_notes {
             println!("{n}");
         }
@@ -437,7 +504,18 @@ impl Report {
         port: PortSummary,
         mbuf: LeakReport,
         exit_reason: String,
+        mut env: EnvInfo,
     ) -> Report {
+        env.finish(tsc_hz);
+        let samples = args.samples.as_ref().map(|p| {
+            let n = stats.samples.len() as u64;
+            SamplesInfo {
+                path: p.display().to_string(),
+                count: n,
+                capacity: stats.samples.capacity() as u64,
+                dropped: stats.inproc.count().saturating_sub(n),
+            }
+        });
         Report {
             client: client.to_string(),
             sessions: args.sessions,
@@ -448,7 +526,8 @@ impl Report {
             elapsed_sec,
             tsc_hz,
             counters: stats.c,
-            metrics: stats.rows(tsc_hz),
+            metrics: stats.rows(tsc_hz, env.tsc_step_cycles),
+            seg1_slow_percent: 100.0 * stats.seg1.fraction_at_or_above(dpdk::tsc::ns_to_cycles(SEG1_SLOW_NS, tsc_hz)),
             burst_sizes: stats.burst_sizes.iter().enumerate().skip(1).filter(|(_, n)| **n > 0).map(|(k, n)| (k, *n)).collect(),
             port,
             mbuf,
@@ -465,16 +544,71 @@ impl Report {
                 rx_total_ns: cycles_to_ns(stats.stalls.rx_total, tsc_hz),
                 rx_max_ns: cycles_to_ns(stats.stalls.rx_max, tsc_hz),
             },
+            diag: args.diag_pre_t0.iter().map(|d| d.name().to_string()).collect(),
+            samples,
+            env,
         }
     }
 
-    /// 打印报告，并按需写 JSON。
-    pub fn emit(&self, json: Option<&std::path::Path>) {
+    /// 打印报告，并按需写 JSON、原始样本文件。
+    pub fn emit(&self, json: Option<&std::path::Path>, stats: &Stats) {
         self.print();
+        if let Some(s) = &self.samples {
+            if let Err(e) = stats.samples.write_to(std::path::Path::new(&s.path), self.tsc_hz) {
+                eprintln!("写原始样本失败：{e}");
+            }
+        }
         if let Some(p) = json {
             if let Err(e) = std::fs::write(p, serde_json::to_string_pretty(self).unwrap()) {
                 eprintln!("写 JSON 失败：{e}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::samples::{unpack, SampleLog};
+
+    fn stamp(t0: u64, t1: u64) -> Stamp {
+        Stamp { t0, t1, ..Stamp::default() }
+    }
+
+    #[test]
+    fn on_reply_records_all_segments_and_the_raw_sample() {
+        let mut st = Stats { samples: SampleLog::with_capacity(8), ..Stats::default() };
+        st.on_reply(stamp(1_000, 1_130), 200_000, 200_338);
+        assert_eq!((st.seg1.max(), st.seg2.max(), st.inproc.max()), (130, 338, 468));
+        assert_eq!(st.e2e.max(), 199_338);
+        assert_eq!(st.samples.as_slice().iter().map(|&v| unpack(v)).collect::<Vec<_>>(), vec![(130, 338, 200_000)]);
+    }
+
+    /// 回复带回的时间戳对不上：计数、留下明细、并且告诉调用方不要把它记进延迟分布。
+    #[test]
+    fn mismatched_echo_is_counted_and_excluded() {
+        let mut st = Stats::default();
+        let s = stamp(1_000, 1_130);
+        assert!(st.verify_echo(s, 1_000, 3, 7));
+        assert!(!st.verify_echo(s, 999, 3, 7));
+        assert_eq!(st.c.tsc_mismatch, 1);
+        assert_eq!(st.anomalies.len(), 1);
+        assert!(st.anomalies[0].contains("id=3 seq=7"));
+    }
+
+    #[test]
+    fn anomaly_log_is_bounded() {
+        let mut st = Stats::default();
+        for i in 0..1000 {
+            st.note_anomaly(format_args!("#{i}"));
+        }
+        assert_eq!(st.anomalies.len(), ANOMALY_LOG_MAX);
+    }
+
+    #[test]
+    fn wake_splits_into_sleep_error_and_seg3() {
+        let mut st = Stats::default();
+        st.on_wake(10_000, 10_040, 10_400);
+        assert_eq!((st.sleep_err.max(), st.seg3.max(), st.wake_total.max()), (40, 360, 400));
     }
 }

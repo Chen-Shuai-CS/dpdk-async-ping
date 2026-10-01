@@ -57,6 +57,8 @@ fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("bindings.rs");
     bindings.write_to_file(out).expect("写 bindings.rs 失败");
 
+    // DPDK 版本号（来自 pkg-config），写进运行报告的环境信息里
+    println!("cargo:rustc-env=DPDK_PKG_VERSION={}", dpdk.version);
     println!("cargo:rerun-if-changed=src/shim.c");
     println!("cargo:rerun-if-changed=src/shim.h");
     println!("cargo:rerun-if-changed=src/wrapper.h");

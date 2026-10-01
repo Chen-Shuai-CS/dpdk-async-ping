@@ -59,6 +59,16 @@ pub struct Args {
     #[arg(long)]
     pub json: Option<PathBuf>,
 
+    /// 把每个样本的原始值（段①、段②、T2）另存为二进制文件，供 scripts/ci.py 做置信区间等离线分析。
+    /// 缓冲区启动时一次分配好，运行中不分配；默认不存
+    #[arg(long)]
+    pub samples: Option<PathBuf>,
+
+    /// 诊断，结果不参与排名：读 T0 之前先执行一条栅栏指令。用来查明"紧跟在上一次发送之后的发送为什么慢"、
+    /// 以及把这段等待移到段①之外后 A − B 是多少。sfence：只约束写入顺序；mfence：等此前所有写入真正完成
+    #[arg(long, value_enum)]
+    pub diag_pre_t0: Option<PreT0>,
+
     /// RX / TX 描述符数量
     #[arg(long, default_value_t = 1024)]
     pub rxd: u16,
@@ -72,6 +82,32 @@ pub struct Args {
     /// 追加给 EAL 的参数（空格分隔）
     #[arg(long, default_value = "")]
     pub eal_extra: String,
+}
+
+/// `--diag-pre-t0` 的取值。
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreT0 {
+    Sfence,
+    Mfence,
+}
+
+impl PreT0 {
+    /// 冷路径：只有打开诊断开关时才会走到。
+    #[cold]
+    #[inline(never)]
+    pub fn run(self) {
+        match self {
+            PreT0::Sfence => dpdk::tsc::sfence(),
+            PreT0::Mfence => dpdk::tsc::mfence(),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PreT0::Sfence => "sfence-before-t0",
+            PreT0::Mfence => "mfence-before-t0",
+        }
+    }
 }
 
 impl Args {
@@ -92,6 +128,17 @@ impl Args {
 }
 
 impl Args {
+    /// `--samples` 的缓冲区容量（样本数）；没开则为 0。
+    /// 按"每个 session 每 (delay + 20 µs) 完成一个请求"估上限（实际往返至少 60 µs），再留 5% 余量。
+    pub fn sample_capacity(&self) -> usize {
+        if self.samples.is_none() {
+            return 0;
+        }
+        let per_sec = self.sessions as u64 * 1_000_000 / (self.delay_us + 20);
+        let cap = (per_sec * self.duration_sec) as usize / 20 * 21 + 4096;
+        cap.min(crate::samples::MAX_SAMPLES)
+    }
+
     /// 解析命令行，补全网卡参数，检查合法性；出错则打印原因并以退出码 2 结束。
     pub fn load() -> Args {
         let mut a = Args::parse();
@@ -133,8 +180,9 @@ impl Args {
             return Err("--duration-sec 与 --timeout-us 必须大于 0".into());
         }
         // RX 环预投递 + TX 环在途 + 每个 session 同时最多占 2 个（持有的 reply + 在途的 request）+ lcore cache
+        // （故障注入脚本用 BQ_FAULT_SKIP_MBUF_CHECK=1 跳过这项检查，故意制造 mbuf 耗尽）
         let need = self.rxd as u32 + self.txd as u32 + 2 * self.sessions as u32 + 512;
-        if self.mbufs < need {
+        if self.mbufs < need && std::env::var_os("BQ_FAULT_SKIP_MBUF_CHECK").is_none() {
             return Err(format!("--mbufs {} 太小：{} 个 session 至少需要 {need}", self.mbufs, self.sessions));
         }
         Ok(())
@@ -163,4 +211,56 @@ fn read_nic_env() -> Option<Vec<(String, String)>> {
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(extra: &[&str]) -> Result<Args, String> {
+        let mut argv = vec!["x", "--pci", "0000:00:00.0", "--src-ip", "10.0.0.1", "--dst-ip", "10.0.0.2", "--dst-mac", "02:00:00:00:00:01"];
+        for (flag, default) in [("--delay-us", "500"), ("--duration-sec", "60")] {
+            if !extra.contains(&flag) {
+                argv.extend([flag, default]);
+            }
+        }
+        argv.extend(extra);
+        let mut a = Args::try_parse_from(argv).map_err(|e| e.to_string())?;
+        a.resolve()?;
+        Ok(a)
+    }
+
+    #[test]
+    fn defaults_are_valid() {
+        let a = args(&[]).unwrap();
+        assert_eq!((a.sessions, a.payload, a.timeout_us), (64, 64, 10_000));
+        assert!(a.diag_pre_t0.is_none() && a.samples.is_none() && a.sample_capacity() == 0);
+        assert_eq!(args(&["--diag-pre-t0", "mfence"]).unwrap().diag_pre_t0, Some(PreT0::Mfence));
+        assert!(args(&["--diag-pre-t0", "bogus"]).is_err());
+    }
+
+    #[test]
+    fn boundary_values() {
+        assert!(args(&["--sessions", "0"]).is_err());
+        assert!(args(&["--sessions", "1"]).is_ok());
+        assert!(args(&["--payload", "7"]).is_err());
+        assert!(args(&["--payload", "8"]).is_ok());
+        assert!(args(&["--payload", "1472"]).is_ok());
+        assert!(args(&["--payload", "1473"]).is_err());
+        assert!(args(&["--timeout-us", "0"]).is_err());
+        assert!(args(&["--delay-us", "0"]).is_ok());
+        // mempool 至少要装得下 RX 环 + TX 环 + 每个 session 2 个 + lcore cache
+        assert!(args(&["--mbufs", "2687"]).is_err());
+        assert!(args(&["--mbufs", "2688"]).is_ok());
+    }
+
+    #[test]
+    fn sample_buffer_is_sized_from_the_request_rate_and_capped() {
+        let a = args(&["--samples", "/tmp/x.bin"]).unwrap();
+        // 64 session、每个最多每 520 µs 一个请求、60 秒 → 约 738 万，再加 5% 余量
+        let cap = a.sample_capacity();
+        assert!((7_700_000..7_800_000).contains(&cap), "{cap}");
+        let a = args(&["--samples", "/tmp/x.bin", "--delay-us", "0", "--duration-sec", "100000"]).unwrap();
+        assert_eq!(a.sample_capacity(), crate::samples::MAX_SAMPLES);
+    }
 }

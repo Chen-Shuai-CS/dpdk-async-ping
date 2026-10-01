@@ -23,7 +23,7 @@ def pick(m, key_prefix):
 
 
 COLS = [
-    ("in-process", "p50"), ("in-process", "p99"), ("in-process", "p99_9"), ("in-process", "p99_99"),
+    ("in-process", "mean"), ("in-process", "p50"), ("in-process", "p99"), ("in-process", "p99_9"), ("in-process", "p99_99"),
     ("seg①", "p50"), ("seg①", "p99"), ("seg②", "p50"), ("seg②", "p99"), ("end-to-end", "p50"),
 ]
 
@@ -42,7 +42,8 @@ def main(paths):
         c = r["counters"]
         leak = r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"]
         name = p.split("/")[-1]
-        print(f"{name:<34} {c['sent']:>9} {c['timeouts']:>5} {leak:>5} " + " ".join(f"{v:>13}" for v in vals))
+        print(f"{name:<34} {c['sent']:>9} {c['timeouts']:>5} {leak:>5} "
+              + " ".join(f"{v:>13.1f}" if isinstance(v, float) else f"{v:>13}" for v in vals))
     if runs["A"] and runs["B"]:
         print()
         med = {k: [statistics.median(col) for col in zip(*v)] for k, v in runs.items()}

@@ -30,6 +30,56 @@ pub fn ns_to_cycles(ns: u64, hz: u64) -> u64 {
     ((ns as u128 * hz as u128) / 1_000_000_000) as u64
 }
 
+/// 诊断用（`--diag-pre-t0 sfence`）：执行一次 `sfence`。
+#[inline(always)]
+pub fn sfence() {
+    // SAFETY: SSE 是 x86_64 的基线指令集；sfence 只约束存储的完成顺序，不读写任何内存。
+    unsafe { core::arch::x86_64::_mm_sfence() }
+}
+
+/// 诊断用（`--diag-pre-t0 mfence`）：执行一次 `mfence`，等此前所有的写入（包括还在排队的设备写入）真正完成后才返回。
+#[inline(always)]
+pub fn mfence() {
+    // SAFETY: SSE2 是 x86_64 的基线指令集；mfence 只约束访存的完成顺序，不读写任何内存。
+    unsafe { core::arch::x86_64::_mm_mfence() }
+}
+
+/// "读一次时钟"的标定结果，单位 TSC 周期。
+#[derive(Debug, Clone, Copy)]
+pub struct ClockCost {
+    /// 相邻两次读数之差的最小值、中位数
+    pub min: u64,
+    pub median: u64,
+    /// 平均值（总耗时 ÷ 次数）。读数有步长时，单次差值只能取步长的整数倍，平均值才是真实成本
+    pub mean: f64,
+    /// 所有差值的最大公约数 = TSC 读数的步长 = 时间戳的分辨率。
+    /// 有些 CPU 的 TSC 不是每个周期加 1，而是每隔固定时间跳一步（本机：每 10 ns 跳 26）
+    pub step: u64,
+}
+
+/// 标定"读一次时钟"本身的成本：连续读 `n + 1` 次，统计相邻读数之差。
+/// 每个被测段（T1 − T0、T3 − T2）都恰好包含一次读时钟。冷路径：只在启动时调用一次。
+pub fn clock_read_cost(n: usize) -> ClockCost {
+    fn gcd(a: u64, b: u64) -> u64 {
+        if b == 0 { a } else { gcd(b, a % b) }
+    }
+    let mut d = Vec::with_capacity(n);
+    let first = rdtsc();
+    let mut prev = first;
+    for _ in 0..n {
+        let now = rdtsc();
+        d.push(now - prev);
+        prev = now;
+    }
+    d.sort_unstable();
+    ClockCost {
+        min: d[0],
+        median: d[n / 2],
+        mean: (prev - first) as f64 / n as f64,
+        step: d.iter().fold(0, |g, &x| gcd(g, x)),
+    }
+}
+
 /// 主循环停顿检测。A 的 runtime 主循环和 B 的循环用的是同一个检测器，分两类统计：
 ///
 /// 1. **空轮询停顿**（[`tick`](Self::tick)）：这一轮没收到包、上一次读时钟之后也没干活（没有 timer 到期、没做维护），
@@ -95,6 +145,14 @@ impl StallWatch {
 #[cfg(test)]
 mod tests {
     use super::StallWatch;
+
+    #[test]
+    fn clock_read_cost_is_sane() {
+        let c = super::clock_read_cost(10_000);
+        assert!(c.min <= c.median, "{c:?}");
+        assert!(c.step >= 1 && c.min.is_multiple_of(c.step) && c.median.is_multiple_of(c.step), "{c:?}");
+        assert!(c.mean > 1.0 && c.mean < 10_000.0, "读一次时钟不该超过几微秒：{c:?}");
+    }
 
     #[test]
     fn stall_watch_separates_idle_and_pre_rx_stalls() {
