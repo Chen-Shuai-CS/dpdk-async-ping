@@ -386,6 +386,59 @@ def section_sessions(a):
     return "\n".join(head + rows) + note
 
 
+def session_runs(rel):
+    """一个会话里的所有运行（主考核、交替各轮、漂移监测的各次短测），按开始时间排序。"""
+    paths = [os.path.join(ROOT, rel, f) for f in ("A-600.json", "B-600.json")]
+    paths += glob.glob(os.path.join(ROOT, rel, "ab", "[AB]-*.json")) + glob.glob(os.path.join(ROOT, rel, "drift", "runs", "[AB]-*.json"))
+    runs = []
+    for p in paths:
+        if os.path.exists(p):
+            with open(p) as f:
+                r = json.load(f)
+            if not r.get("diag"):
+                runs.append(r)
+    return sorted(runs, key=lambda r: r["env"]["started_unix"])
+
+
+def section_drift(a):
+    """重启后的会话按"距开机多久"分窗，看 A 的尾部状态怎么随时间变。"""
+    import datetime
+    out = []
+    for d in sorted(glob.glob(os.path.join(ROOT, "logs/sessions/*/"))):
+        rel = os.path.relpath(d, ROOT)
+        runs = session_runs(rel)
+        if len(runs) < 30:
+            continue
+        meta = load(rel + "/meta.json")
+        boot = datetime.datetime.strptime(meta["boot_time"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+        tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
+        med = statistics.median
+        out += [f"会话 `{meta['name']}`（开机时间 {meta['boot_time']} UTC）共 {len(runs)} 次运行，按开始时刻距开机多久分窗，每个窗口取各次运行的中位数（ns）：\n",
+                "| 距开机 | 运行次数 A / B | A 段② p99 | B 段② p99 | A 段① ≥ 125 ns 占比 | A 段③ 平均 | 进程内 p50：A − B | 进程内 p99：A − B | 每请求总账：A − B | 丢包 / 泄漏 |",
+                "|---|---|---|---|---|---|---|---|---|---|"]
+        width = 600
+        for w in range(0, int(max(r["env"]["started_unix"] for r in runs) - boot) // width + 1):
+            sel = [r for r in runs if w * width <= r["env"]["started_unix"] - boot < (w + 1) * width]
+            A = [r for r in sel if r["client"].startswith("A")]
+            B = [r for r in sel if r["client"].startswith("B")]
+            if not A or not B:
+                if sel:
+                    r = sel[0]
+                    out.append(f"| {w * 10} ~ {w * 10 + 10} 分钟 | {len(A)} / {len(B)} | " + (f"{metric(r, 'seg②')['p99_interp']:.0f}" if A else "—") + " | "
+                               + (f"{metric(r, 'seg②')['p99_interp']:.0f}" if B else "—") + f" | " + (f"{r['seg1_slow_percent']:.2f}%" if A else "—")
+                               + " | " + (f"{metric(r, 'seg③')['mean']:.0f}" if A else "—") + f" | — | — | — | {r['counters']['timeouts']} / {r['mbuf']['avail_initial'] - r['mbuf']['avail_final']} |")
+                continue
+            m = lambda rs, name, key: med(metric(r, name)[key] for r in rs)
+            lost = sum(r["counters"]["timeouts"] for r in sel)
+            leak = sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for r in sel)
+            out.append(f"| {w * 10} ~ {w * 10 + 10} 分钟 | {len(A)} / {len(B)} | {m(A, 'seg②', 'p99_interp'):.0f} | {m(B, 'seg②', 'p99_interp'):.0f} "
+                       f"| {med(r['seg1_slow_percent'] for r in A):.2f}% | {m(A, 'seg③', 'mean'):.0f} "
+                       f"| {m(A, 'in-process', 'p50_interp') - m(B, 'in-process', 'p50_interp'):+.1f} "
+                       f"| **{m(A, 'in-process', 'p99_interp') - m(B, 'in-process', 'p99_interp'):+.0f}** "
+                       f"| **{med(tot(r) for r in A) - med(tot(r) for r in B):+.1f}** | {lost} / {leak} |")
+    return "\n".join(out) if out else "（没有足够密的会话数据；运行 scripts/drift.sh）"
+
+
 def section_stores(a):
     """剂量实验：T0 之前多做 N 次普通写入。"""
     d = os.path.join(ROOT, a.diag_dir)
@@ -467,7 +520,7 @@ def section_env(a):
 
 def sections_table():
     return (("main", section_main), ("totals", section_totals), ("ab", section_ab), ("c", section_c), ("probe", section_probe),
-            ("ci", section_ci), ("burst", section_burst), ("diag", section_diag), ("stores", section_stores), ("sessions", section_sessions), ("fault", section_fault),
+            ("ci", section_ci), ("burst", section_burst), ("diag", section_diag), ("stores", section_stores), ("sessions", section_sessions), ("drift", section_drift), ("fault", section_fault),
             ("soak", section_soak), ("env", section_env))
 
 

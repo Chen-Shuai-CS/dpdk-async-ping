@@ -1,0 +1,9 @@
+{
+ "name": "reboot1",
+ "boot_id": "afec1b80-9e2b-43ac-af84-31bef119c4eb",
+ "boot_time": "2026-10-01 11:43:39",
+ "started": "2026-10-01 11:44:19",
+ "kernel": "6.18.48-107.148.amzn2023.x86_64",
+ "git_commit": "11334b196717",
+ "code_diff_lines_vs_ea2e92b": 0
+}

@@ -1,0 +1,25 @@
+[1;34m[11:44:19][0m 内核启动参数
+[1;32m  ✔[0m cmdline 含 hugepages=1024
+[1;32m  ✔[0m cmdline 含 isolcpus=managed_irq,domain,3
+[1;32m  ✔[0m cmdline 含 nohz_full=3
+[1;32m  ✔[0m cmdline 含 rcu_nocbs=3
+[1;32m  ✔[0m cmdline 含 irqaffinity=0-2
+[1;32m  ✔[0m cmdline 含 tsc=reliable
+[1;32m  ✔[0m 核 3 已隔离（/sys/devices/system/cpu/isolated）
+[1;32m  ✔[0m 核 3 为 nohz_full
+[1;32m  ✔[0m 时钟源为 tsc
+[1;34m[11:44:19][0m 大页
+[1;32m  ✔[0m HugePages_Total=1024 ≥ 1024
+[1;32m  ✔[0m /dev/hugepages 已挂载
+[1;34m[11:44:19][0m 中断
+[1;32m  ✔[0m 没有中断落在核 3（发现 0 个）
+[1;32m  ✔[0m irqbalance 已排除核 3
+[1;34m[11:44:19][0m 软件
+[1;32m  ✔[0m DPDK 25.11.3
+[1;32m  ✔[0m igb_uio 模块已安装
+[1;32m  ✔[0m rustc 1.98.1
+[1;34m[11:44:19][0m 网卡
+[1;32m  ✔[0m 0000:28:00.0 已绑定 igb_uio
+[1;32m  ✔[0m SSH 网卡 enp39s0 在线
+
+[1;32m  ✔[0m 环境检查全部通过
