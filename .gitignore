@@ -3,5 +3,5 @@
 /target-probe
 # 临时文件（perf 数据、控制台转储等）
 /logs/tmp/
-# C 的逐包 ping 原始输出（64 个文件、数百 MB）；汇总结果 summary.txt / C.json 会保留
-/logs/C-*/ping-*.txt
+# C 的逐包 ping 原始输出（64 个文件、数百 MB），任何层级都不进仓库；汇总结果 summary.txt / C.json 会保留
+/logs/**/ping-*.txt
