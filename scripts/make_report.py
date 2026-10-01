@@ -43,6 +43,27 @@ def section_main(a):
     return out.strip()
 
 
+def section_totals(a):
+    """每个请求的平均耗时总账：平均值可以相加，分位数不能。"""
+    A, B = load(a.main_a), load(a.main_b)
+    mean = lambda r, pre: metric(r, pre)["mean"]
+    s1a, s2a, s3a = mean(A, "seg①"), mean(A, "seg②"), mean(A, "seg③")
+    s1b, s2b, s3b = mean(B, "seg①"), mean(B, "seg②"), mean(B, "seg③")
+    rows = [
+        ("段① 发送（T0 → T1）", s1a, s1b, False),
+        ("段② 接收（T2 → T3）", s2a, s2b, False),
+        ("段③ timer 发现到期 → 下一个 T0（不计分）", s3a, s3b, False),
+        ("**排名口径：① + ②**", s1a + s2a, s1b + s2b, True),
+        ("发送侧合计：③ + ①（发现到期 → T1）", s1a + s3a, s1b + s3b, False),
+        ("**自己代码的全部时间：① + ② + ③**", s1a + s2a + s3a, s1b + s2b + s3b, True),
+    ]
+    out = ["| 每个请求的平均耗时（ns） | A | B | A − B |", "|---|---|---|---|"]
+    for name, x, y, bold in rows:
+        diff = f"**{x - y:+.1f}**" if bold else f"{x - y:+.1f}"
+        out.append(f"| {name} | {x:.1f} | {y:.1f} | {diff} |")
+    return "\n".join(out)
+
+
 def section_ab(a):
     dirs = sorted(glob.glob(os.path.join(ROOT, a.ab)))
     cols = [("in-process", "p50"), ("in-process", "p99"), ("in-process", "p99_9"), ("in-process", "p99_99"),
@@ -144,7 +165,7 @@ def main():
     path = os.path.join(ROOT, a.out)
     with open(path) as f:
         doc = f.read()
-    for name, fn in (("main", section_main), ("ab", section_ab), ("c", section_c), ("probe", section_probe)):
+    for name, fn in (("main", section_main), ("totals", section_totals), ("ab", section_ab), ("c", section_c), ("probe", section_probe)):
         pat = re.compile(rf"(<!-- BEGIN:{name} -->).*?(<!-- END:{name} -->)", re.S)
         if not pat.search(doc):
             print(f"警告：{a.out} 里没有 {name} 标记", file=sys.stderr)
