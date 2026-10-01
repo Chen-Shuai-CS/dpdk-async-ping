@@ -11,7 +11,7 @@ for i in $(seq 1 "$pairs"); do
     if (( i % 2 )); then order="A B"; else order="B A"; fi
     for c in $order; do
         log "第 $i 对：$c"
-        "$REPO_ROOT/scripts/run.sh" "$c" --delay-us 500 --duration-sec "$secs" --progress-sec 0 "$@" \
+        RUN_LOG=/dev/null "$REPO_ROOT/scripts/run.sh" "$c" --delay-us 500 --duration-sec "$secs" --progress-sec 0 "$@" \
             --json "$out/$c-$i.json" > "$out/$c-$i.log" 2>&1 || warn "$c-$i 退出码非 0（见 $out/$c-$i.log）"
     done
 done

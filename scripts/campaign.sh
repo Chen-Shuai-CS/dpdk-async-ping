@@ -24,7 +24,7 @@ want() { local s; for s in "${stages[@]}"; do [[ $s == "$1" ]] && return 0; done
 run() {  # run <A|B> <输出前缀> [参数...]：日志 → <前缀>.log，报告 → <前缀>.json
     local c=$1 out=$2; shift 2
     log "▶ $c → $out  $*"
-    scripts/run.sh "$c" --progress-sec 0 --json "$out.json" "$@" > "$out.log" 2>&1 || warn "$out 退出码非 0（见 $out.log）"
+    RUN_LOG=/dev/null scripts/run.sh "$c" --progress-sec 0 --json "$out.json" "$@" > "$out.log" 2>&1 || warn "$out 退出码非 0（见 $out.log）"
     grep -E "in-process|泄漏|^对账" "$out.log" | sed 's/^/    /'
 }
 mkdir -p logs/final logs/diag logs/soak logs/tmp

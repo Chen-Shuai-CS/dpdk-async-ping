@@ -27,7 +27,7 @@ source "$HOME/.cargo/env"
 
 mkdir -p "$REPO_ROOT/logs"
 ts=$(date +%Y%m%d-%H%M%S)
-log_file="$REPO_ROOT/logs/$tag-$ts.log"
+log_file="${RUN_LOG:-$REPO_ROOT/logs/$tag-$ts.log}"     # RUN_LOG：调用者自己保存输出时，用它关掉这份副本（设为 /dev/null）
 json_file="$REPO_ROOT/logs/$tag-$ts.json"
 json_arg=(--json "$json_file")
 samples_file=""; prev=""

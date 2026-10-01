@@ -41,12 +41,11 @@ PY
 run() {
     local c=$1 o=$2; shift 2
     log "▶ $c → $o  $*"
-    scripts/run.sh "$c" --progress-sec 0 --json "$o.json" "$@" > "$o.log" 2>&1 || warn "$o 退出码非 0（见 $o.log）"
+    RUN_LOG=/dev/null scripts/run.sh "$c" --progress-sec 0 --json "$o.json" "$@" > "$o.log" 2>&1 || warn "$o 退出码非 0（见 $o.log）"
     grep -E "in-process|泄漏|^对账" "$o.log" | sed 's/^/    /'
 }
 run A "$out/A-600" --delay-us 500 --duration-sec 600 --samples "logs/tmp/$name-A.samples"
 run B "$out/B-600" --delay-us 500 --duration-sec 600 --samples "logs/tmp/$name-B.samples"
 python3 scripts/ci.py --a "logs/tmp/$name-A.samples" --b "logs/tmp/$name-B.samples" --out "$out/ci.json"
 AB_OUT="$out/ab" scripts/ab.sh 10 60
-rm -f logs/[AB]-2*.log          # run.sh 自动生成的重复日志（每轮的日志已在会话目录里）
 log "会话 $name 完成 → $out"
