@@ -31,29 +31,34 @@ def load(path):
     hdr = np.fromfile(path, dtype="<u8", count=4)
     assert hdr[0].tobytes() == b"BQSAMPL1", f"{path} 不是样本文件"
     hz, n = int(hdr[1]), int(hdr[2])
-    r = np.fromfile(path, dtype="<u8", offset=32, count=n)
-    s1 = (r >> np.uint64(48)).astype(np.int32)
-    s2 = ((r >> np.uint64(32)) & np.uint64(0xFFFF)).astype(np.int32)
-    t2 = (r & np.uint64(0xFFFFFFFF)).astype(np.int64)
+    # 10 分钟有 5000 多万个样本：用内存映射读文件，并用尽量窄的整数类型，避免把内存撑爆
+    r = np.memmap(path, dtype="<u8", mode="r", offset=32, shape=(n,))
+    s1 = (r >> np.uint64(48)).astype(np.uint16)
+    s2 = ((r >> np.uint64(32)) & np.uint64(0xFFFF)).astype(np.uint16)
+    t2 = (r & np.uint64(0xFFFFFFFF)).astype(np.uint32)
+    del r
     return hz, s1, s2, t2
 
 
-def unwrap_seconds(t2, hz):
-    """T2 只存了低 32 位（约 1.6 秒回绕一次）；样本按时间顺序排列，逐个累加差值即可还原时间轴（秒）。"""
-    d = np.diff(t2)
-    d[d < -(1 << 31)] += 1 << 32
-    d[d > (1 << 31)] -= 1 << 32
-    t = np.empty(len(t2), dtype=np.float64)
-    t[0] = 0.0
-    np.cumsum(d, out=t[1:])
-    t /= hz
-    return t
+def time_blocks(t2, hz):
+    """T2 只存了低 32 位（约 1.6 秒回绕一次）；样本按时间顺序排列，逐个累加差值即可还原时间轴。
+    返回（每个样本所在的时间块编号，总时长秒）。"""
+    d = (t2[1:] - t2[:-1]).view(np.int32)      # 无符号相减自动回绕，再按有符号数解释 = 相邻样本的真实差值
+    cyc = np.empty(len(t2), dtype=np.int64)
+    cyc[0] = 0
+    np.cumsum(d, dtype=np.int64, out=cyc[1:])
+    del d
+    dur = float(cyc[-1]) / hz
+    cyc //= int(hz * BASE_SEC)
+    return cyc.astype(np.int32), dur
 
 
 def block_hist(values, blk, nb):
     """每个时间块一行的直方图：H[b, v] = 第 b 块里取值为 v 的样本数。"""
-    v = np.minimum(values, NB - 1).astype(np.int64)
-    return np.bincount(blk.astype(np.int64) * NB + v, minlength=nb * NB).reshape(nb, NB).astype(np.float32)
+    key = blk.astype(np.int64)
+    key *= NB
+    key += np.minimum(values, NB - 1)
+    return np.bincount(key, minlength=nb * NB).reshape(nb, NB).astype(np.float32)
 
 
 def regroup(H, k):
@@ -167,11 +172,14 @@ def burst_positions(t2, s2):
     new = np.empty(n, dtype=bool)
     new[0] = True
     np.not_equal(t2[1:], t2[:-1], out=new[1:])
-    starts = np.flatnonzero(new)
-    sizes = np.diff(np.append(starts, n)).astype(np.int32)
-    gid = np.cumsum(new, dtype=np.int32) - 1
-    pos = (np.arange(n, dtype=np.int32) - starts[gid].astype(np.int32)) + 1
+    starts = np.flatnonzero(new).astype(np.int32)
+    sizes = np.diff(np.append(starts, np.int32(n))).astype(np.int32)
+    gid = np.cumsum(new, dtype=np.int32)
+    gid -= 1
+    pos = np.arange(1, n + 1, dtype=np.int32)
+    pos -= starts[gid]
     size = sizes[gid]
+    del gid
     # 核对假设：同一批内段②应当随位置递增（后处理的包 T3 更晚）
     same = ~new[1:]
     mono = float((s2[1:][same] >= s2[:-1][same]).mean()) if same.any() else 1.0
@@ -180,16 +188,13 @@ def burst_positions(t2, s2):
 
 def analyse_one(path, label):
     hz, s1, s2, t2 = load(path)
-    step = int(np.gcd.reduce(np.concatenate([s1[:2_000_000], s2[:2_000_000]])))
+    step = int(np.gcd.reduce(np.concatenate([s1[:2_000_000], s2[:2_000_000]]).astype(np.int64)))
     step = max(step, 1)
     step_ns = step * 1e9 / hz
-    t = unwrap_seconds(t2, hz)
-    dur = float(t[-1])
-    blk = np.floor(t / BASE_SEC).astype(np.int32)
-    del t
+    blk, dur = time_blocks(t2, hz)
     nb = int(blk.max()) + 1
-    clipped = int(((s1 >= 0xFFFF) | (s2 >= 0xFFFF)).sum())
-    u1, u2 = s1 // step, s2 // step
+    clipped = int(((s1 == 0xFFFF) | (s2 == 0xFFFF)).sum())
+    u1, u2 = s1 // np.uint16(step), s2 // np.uint16(step)
     del s1
     H = {
         "inproc": block_hist(u1 + u2, blk, nb),
