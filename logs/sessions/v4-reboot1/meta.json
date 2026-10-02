@@ -1,0 +1,9 @@
+{
+ "name": "v4-reboot1",
+ "version": "v4",
+ "boot_id": "695b0acf-3dec-4d2a-8597-3c79eea44b37",
+ "boot_time": "2026-10-02 14:54:58",
+ "started": "2026-10-02 14:57:13",
+ "kernel": "6.18.48-107.148.amzn2023.x86_64",
+ "git_commit": "d8324d9e3936"
+}

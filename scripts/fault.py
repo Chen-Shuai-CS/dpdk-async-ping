@@ -111,7 +111,8 @@ def cases():
              # RX 环没有空 mbuf 时网卡只能把到达的包丢掉，并记入 imissed。被丢的绝大多数是 echo reply（→ 我们的超时），
              # 偶尔也会是一个不相干的帧（ARP 等），所以 imissed 可以比超时数多出一两个。
              # 反过来，丢得很凶的时候（一次运行上万个），有一部分丢失不在 imissed 里，也不在网卡的任何其他计数器里（见报告 §8）：
-             # 它们没有到达这张网卡。所以这里核对的是"imissed 解释了绝大部分丢失"，并把没解释的部分如实写出来。
+             # 这部分未被现有计数器解释，丢在哪里没有确定。所以这里核对的是"imissed 在数量上解释了至少四分之三的丢失"
+             # （故障测试的容差，不是"原因完全定位"的证据），并把没解释的部分如实写出来。
              lambda r, x: ((c(r)["no_mbuf"] > 0 or r["port"]["rx_nombuf"] > 0) and r["port"]["imissed"] > 0
                            and r["port"]["imissed"] - c(r)["timeouts"] <= 2 and c(r)["timeouts"] - r["port"]["imissed"] <= 0.25 * c(r)["timeouts"],
                            f"驱动补 RX 环失败 {r['port']['rx_nombuf']:,} 次，发送侧取不到 mbuf {c(r)['no_mbuf']:,} 次（1 µs 后重试）；"

@@ -201,6 +201,49 @@ def plot_abba(d, out):
     save(fig, out, "abba.png")
 
 
+def plot_drift(session_dir, out):
+    """一个会话里每次运行一个点：A 的尾部状态怎么随时间变（横轴：距开机多少分钟）。"""
+    import datetime
+    meta_p = os.path.join(session_dir, "meta.json")
+    if not os.path.exists(meta_p):
+        return
+    with open(meta_p) as f:
+        meta = json.load(f)
+    boot = datetime.datetime.strptime(meta["boot_time"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+    paths = [os.path.join(session_dir, f) for f in ("A-600.json", "B-600.json")]
+    paths += glob.glob(os.path.join(session_dir, "ab", "[AB]-*.json")) + glob.glob(os.path.join(session_dir, "drift", "runs", "[AB]-*.json"))
+    runs = []
+    for p in paths:
+        if os.path.exists(p):
+            with open(p) as f:
+                r = json.load(f)
+            if not r.get("diag"):
+                runs.append(r)
+    if len(runs) < 30:
+        return
+    runs.sort(key=lambda r: r["env"]["started_unix"])
+    t = lambda r: (r["env"]["started_unix"] + r["duration_sec"] / 2 - boot) / 60
+    tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
+    A = [r for r in runs if r["client"].startswith("A")]
+    B = [r for r in runs if r["client"].startswith("B")]
+    fig, axes = plt.subplots(3, 1, figsize=(10, 7.6), sharex=True)
+    panels = [(lambda r: metric(r, "seg②")["p99_interp"], T("段② 的 p99（ns）", "seg2 p99 (ns)")),
+              (lambda r: metric(r, "in-process")["p99_interp"], T("进程内 p99（ns）", "in-process p99 (ns)")),
+              (tot, T("段①+②+③ 平均值之和（ns）", "seg1+seg2+seg3 mean (ns)"))]
+    for ax, (fn, label) in zip(axes, panels):
+        for rs, col, lab in ((A, CA, "A"), (B, CB, "B")):
+            ax.scatter([t(r) for r in rs], [fn(r) for r in rs], s=[10 if r["duration_sec"] < 60 else (26 if r["duration_sec"] < 600 else 70) for r in rs],
+                       color=col, label=lab, alpha=0.8, linewidths=0)
+        ax.set_ylabel(label, fontsize=9)
+        ax.grid(True, alpha=0.25)
+        ax.legend(loc="upper right", ncol=2, fontsize=9)
+    axes[2].set_xlabel(T("距开机多少分钟（每个点是一次运行；大点 = 10 分钟的运行，中点 = 60 秒，小点 = 20 秒）",
+                         "minutes since boot (one point per run; large = 10-minute run, medium = 60 s, small = 20 s)"))
+    fig.suptitle(T(f"重启之后：会话 {meta['name']} 的每一次运行放在同一条时间轴上",
+                   f"After the reboot: every run of session '{meta['name']}' on one time axis"), fontsize=10, y=0.92)
+    save(fig, out, f"drift-{meta['name']}.png")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ci", default="logs/final/ci.json")
@@ -227,6 +270,8 @@ def main():
     ab = a.ab or (sorted(glob.glob(os.path.join(ROOT, "logs/ab-*")))[-1:] or [""])[0]
     if ab:
         plot_abba(ab if os.path.isabs(ab) else os.path.join(ROOT, ab), out)
+    for d in sorted(glob.glob(os.path.join(ROOT, "logs/sessions", "*/"))):   # 重启后 / 另一天的复测会话：每个会话一张时间轴
+        plot_drift(d, out)
 
 
 if __name__ == "__main__":

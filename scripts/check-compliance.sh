@@ -128,6 +128,8 @@ for t in A B; do
     check "$t：样本数 = received；没有被拒绝的回复（时间戳不符），record 时的二次核对全部通过" json "$f" 'ip["count"] == c["received"] and c["tsc_mismatch"] == 0 and c["record_mismatch"] == 0'
     check "$t：AWS 限额计数、网卡丢弃计数全为 0" json "$f" 'all(v == 0 for _, v in r["port"]["allowance_exceeded"]) and r["port"]["imissed"] == 0 and r["port"]["ierrors"] == 0 and r["port"]["rx_nombuf"] == 0'
     check "$t：是排名口径的运行（没有开任何诊断开关），且由干净的源码树构建" json "$f" 'r["diag"] == [] and not r["env"]["git_dirty"]'
+    # 同一个提交可以编出 probe 版、fault 版；它们各有自己的输出目录（target-probe/、target-fault/）。正式日志必须来自默认构建
+    check "$t：由默认构建产生（不是 probe / fault 构建）" json "$f" 'r["env"]["features"] == [] and "/target/release/" in r["env"]["argv"][0]'
 done
 check "A 与 B 的主考核来自同一个代码版本" python3 -c "
 import json, sys
