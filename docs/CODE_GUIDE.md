@@ -2,7 +2,7 @@
 
 这份文档回答两个问题：**项目里的每一块代码是用来做什么的**，以及**每一项重要功能对应的代码在哪里**。
 
-- 仓库在 `~/dpdk-async-ping`。文中的路径都相对于仓库根目录；写成 `文件:行号` 的，行号以标签 `v2` 的代码为准（之后改动代码，行号会略有偏移，按函数名找即可）。
+- 仓库在 `~/dpdk-async-ping`。文中的路径都相对于仓库根目录；写成 `文件:行号` 的，行号以标签 `v3` 的代码为准（v3 相对 v2 只动了 `pingkit/src/samples.rs` 和 `dpdk/src/tsc.rs`；之后改动代码，行号会略有偏移，按函数名找即可）。
 - 不解释 Rust / DPDK / async 的基础概念，那些在 `~/Claude知识.md` 里；这里只讲"本项目的代码"。
 - 仓库里的副本是 `docs/CODE_GUIDE.md`，内容相同。
 
@@ -116,7 +116,7 @@
 | 最终报表（屏幕 + JSON） | `stats.rs:293` `Report`，打印在 `stats.rs:361`，写文件在 `stats.rs:554` |
 | 周期性维护（网卡 watchdog、回收 TX） | `house.rs:39` `maintain` |
 | 进度上报线程、信号处理 | `live.rs:63` `spawn_reporter`，`live.rs:39` `install_signal_handlers` |
-| 原始样本导出（`--samples`） | `samples.rs:26` `SampleLog` |
+| 原始样本导出（`--samples`） | `samples.rs:30` `SampleLog` |
 | 环境信息、时钟标定 | `envinfo.rs:78` `EnvInfo::collect` |
 | 诊断开关（`--diag-pre-t0`） | `args.rs:102` `Diag`，执行在 `args.rs:115` |
 
@@ -125,8 +125,8 @@
 | 功能 | 位置 |
 |---|---|
 | 读时钟（所有时间戳都用它） | `crates/dpdk/src/tsc.rs:10` `rdtsc`（实际执行的是 `rdtscp` 指令） |
-| 主循环停顿检测 | `tsc.rs:92` `StallWatch` |
-| 时钟标定（读一次多少纳秒、步长多少） | `tsc.rs:62` `clock_read_cost` |
+| 主循环停顿检测 | `tsc.rs:102` `StallWatch` |
+| 时钟标定（读一次多少纳秒、步长多少） | `tsc.rs:72` `clock_read_cost` |
 | mbuf 的所有权 | `crates/dpdk/src/mbuf.rs:9` `Mbuf`，归还在 `mbuf.rs:104` 的 `Drop` |
 | 收一批包 / 发一个包 | `crates/dpdk/src/port.rs:119` `rx_burst`，`port.rs:131` `tx` |
 | 造一个 echo request（含增量校验和） | `crates/pingproto/src/lib.rs:132` `write_request` |
@@ -149,7 +149,7 @@
 | 2 | `install_signal_handlers()`（`live.rs:39`） | Ctrl-C / kill 只置一个标志，主循环看到后走正常的收尾 |
 | 3 | `Dataplane::open`（`dataplane.rs:67`） | 拿单实例锁 → 初始化 EAL → 建 mbuf 池并记下"初始可用数" → 配置并启动端口 → 等链路 up → 预先造好帧模板 |
 | 4 | `EnvInfo::collect`（`envinfo.rs:78`） | 标定时钟，采集环境信息 |
-| 5 | `SampleLog::with_capacity`（`samples.rs:43`） | 开了 `--samples` 才分配；否则容量为 0 |
+| 5 | `SampleLog::with_capacity`（`samples.rs:47`） | 开了 `--samples` 才分配；否则容量为 0 |
 | 6 | `spawn_reporter`（`live.rs:63`） | 在核 1 上起一个线程，每 5 秒打印一行进度 |
 | 7 | 算出"起点"（`main.rs` 中 `let start = …`） | 起点 = 现在 + 1 ms，让下面的准备工作不被算进任何 session 的 sleep 误差 |
 | 8 | `Runtime::new` + 64 次 `rt.spawn(session(…))` | 每个 session 是一个 task；初始相位均匀错开在一个 delay 周期内 |
@@ -257,7 +257,7 @@ A 在 `main.rs` 的 `rt.run` 返回之后（约 160 行起），B 在 `finish`�
 
 ### 3.2 `dpdk`：安全封装
 
-**解决什么问题**：把"容易用错的 C 接口"变成"用错了就编译不过的 Rust 类型"。项目里 57 处 unsafe 有 45 处在这里，上层拿到的是安全的类型。
+**解决什么问题**：把"容易用错的 C 接口"变成"用错了就编译不过的 Rust 类型"。项目里 58 处 unsafe 有 46 处在这里，上层拿到的是安全的类型。
 
 | 类型 / 函数 | 位置 | 作用 | 设计要点 |
 |---|---|---|---|
@@ -278,9 +278,10 @@ A 在 `main.rs` 的 `rt.run` 返回之后（约 160 行起），B 在 `finish`�
 | `RxBurst` | `port.rs:201` | 一次 `rx_burst` 的结果 | 是个迭代器；没取走的包在下次收包或 `Drop` 时自动释放 |
 | `tsc::rdtsc` | `tsc.rs:10` | 读时钟 | 名字叫 rdtsc，实际执行 `rdtscp`（原因见函数上方的注释） |
 | `tsc::cycles_to_ns` / `ns_to_cycles` | `tsc.rs:24 / 29` | 周期与纳秒互换 | |
-| `tsc::clock_read_cost` | `tsc.rs:62` | 标定读时钟的成本和步长 | 启动时调用一次 |
-| `tsc::StallWatch` | `tsc.rs:92` | 停顿检测 | 两类：空轮询停顿（`tick`）、取包前停顿（`tick_rx`） |
+| `tsc::clock_read_cost` | `tsc.rs:72` | 标定读时钟的成本和步长 | 启动时调用一次 |
+| `tsc::StallWatch` | `tsc.rs:102` | 停顿检测 | 两类：空轮询停顿（`tick`）、取包前停顿（`tick_rx`） |
 | `tsc::sfence` / `mfence` | `tsc.rs:35 / 42` | 诊断开关用的两条指令 | |
+| `tsc::prefetch_write` | `tsc.rs:52` | 把一条缓存行以"可写"状态提前取进缓存 | v3 加的；只有样本导出在用（`samples.rs:55` 的 `push`），原因见报告 §3.5 |
 | `Error` | `error.rs` | 错误类型：哪一步失败 + errno | |
 
 ### 3.3 `pingproto`：协议
@@ -362,7 +363,7 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 | `stats.rs` | 614 | 计数器、各段的直方图、报表。见下 |
 | `house.rs` | 48 | 维护节拍：`House::due`（21 行）判断该不该做了；`maintain`（39 行）做什么；`START_LEAD_NS`（34 行）是起点延后的 1 ms |
 | `live.rs` | 90 | 上报线程（只读几个原子计数器）；信号处理；绑核 |
-| `samples.rs` | 134 | 原始样本：一个样本压成 8 字节，写进预先分配好的数组 |
+| `samples.rs` | 140 | 原始样本：一个样本压成 8 字节，写进预先分配好的数组；每写一个样本预取下一条缓存行（v3） |
 | `envinfo.rs` | 162 | 采集环境信息；启动时标定时钟，结束时算时钟漂移 |
 | `build.rs` | 28 | 编译时把 git 提交号、编译器版本写进程序 |
 
@@ -501,7 +502,7 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 
 ### 5.6 停顿检测（最大值尖刺从哪来）
 
-`dpdk/src/tsc.rs:92` `StallWatch`。A 在 `Runtime::run` 里、B 在自己的主循环里各调用两处：`tick`（每轮读完时钟后）和 `tick_rx`（收到包的那一轮）。
+`dpdk/src/tsc.rs:102` `StallWatch`。A 在 `Runtime::run` 里、B 在自己的主循环里各调用两处：`tick`（每轮读完时钟后）和 `tick_rx`（收到包的那一轮）。
 "这一轮什么都没干却过了 1 µs 以上" = 我们的代码没在运行 = 被外部打断。
 
 ### 5.7 单实例锁
@@ -575,7 +576,7 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 | `session.sh 名字` | 一次独立的复测会话（重启后 / 另一天用），结果不覆盖正式数据 |
 | `drift.sh 目录 分钟数` | A、B 每 20 秒交替一次的长时间监测 |
 | `versions.sh` | 两个代码版本的 A 与 B 轮流对比 |
-| `day.sh 名字 [旧标签] [轮数] [分钟数]` | 同一次开机里把"旧版本的 A、当前版本的 A、B"放在一条时间轴上：旧版本的主考核 → 三者轮流各 60 秒 × N 轮 → 三者轮流各 20 秒连续监测 → 当前版本的主考核。原始记录在 `logs/sessions/<名字>-raw/`，并整理成两个普通会话 `<名字>-<旧标签>`、`<名字>-<当前标签>`；A 的尾部变重时自动补一组 `mfence` 口径 |
+| `day.sh 名字 [旧标签] [轮数] [分钟数]` | 同一次开机里把"旧版本的 A、当前版本的 A、B"放在一条时间轴上：旧版本的主考核 → 三者轮流各 60 秒 × N 轮 → 三者轮流各 20 秒连续监测 → 当前版本的主考核（`DAY_ORDER=rot-first` 时改成一开机就轮流、主考核放最后）。原始记录在 `logs/sessions/<名字>-raw/`，并整理成两个普通会话 `<名字>-<旧标签>`、`<名字>-<当前标签>`；A 的尾部变重时自动补一组 `mfence` 口径 |
 | `build-version.sh 标签` | 把某个历史版本编译到仓库之外，供对比用 |
 | `fault.py` | 故障注入矩阵 |
 | `write_meta.py` | 记录一组测量属于哪次开机、哪个代码版本 |
@@ -617,7 +618,7 @@ logs/
   probe/        probe 构建的诊断
   sessions/     重启后 / 另一天的复测会话（`day2-raw` 是第二天三者轮流跑的原始记录，`day2-v1`、`day2-v2` 是由它整理出的两个会话）
   versions/     不同代码版本的轮流对比
-  exp/          没有并入正式代码的实验（补丁 + 结果）
+  exp/          先在正式代码之外做的实验（补丁 + 结果）：`sleep-unchecked` 后来并入成了 v2，`samples-slow` 后来并入成了 v3
   v1/           上一个代码版本（标签 v1）的全部数据，结构同上
   C-*/          系统 ping 的汇总
   history/      更早的运行
