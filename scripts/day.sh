@@ -13,12 +13,17 @@
 # 第 2、3 阶段里，任何一个版本的 A 一旦出现"尾部变重"（段② p99 超过 DAY_HEAVY_NS，默认 400 ns），
 # 立刻补跑一组 mfence 口径（那个版本的 A + B，各 20 秒），最多 DAY_MFENCE_MAX 组（默认 20）。
 # 原始记录在 logs/sessions/<名字>-raw/。
+#
+# DAY_ORDER=rot-first 时顺序改为 2 → 3 → 4 → 1：一开机就让三者轮流跑（看开机后头半小时里两个版本各是什么样），
+# 两对主考核放到最后，并且先测当前版本、再测旧版本（与默认顺序相反，用来抵消"谁先谁后"）。
 set -uo pipefail
 source "$(dirname "$0")/common.sh"
 cd "$REPO_ROOT"
 name=${1:?用法：scripts/day.sh <名字> [旧版本标签] [轮流的轮数] [连续监测分钟数]}
 old=${2:-v1}; rounds=${3:-14}; drift_min=${4:-60}
 heavy_ns=${DAY_HEAVY_NS:-400}; mf_max=${DAY_MFENCE_MAX:-20}; mf_done=0
+order=${DAY_ORDER:-main-first}
+[[ $order == main-first || $order == rot-first ]] || die "DAY_ORDER 只能是 main-first 或 rot-first"
 main_sec=${DAY_MAIN_SEC:-600}; rot_sec=${DAY_ROT_SEC:-60}; drift_sec=${DAY_DRIFT_SEC:-20}   # 只为试跑脚本而留的开关
 cur=$(python3 -c "import sys; sys.path.insert(0, 'scripts'); import write_meta; print(write_meta.detect_version())")
 raw="logs/sessions/$name-raw"; s_old="logs/sessions/$name-$old"; s_cur="logs/sessions/$name-$cur"
@@ -67,12 +72,15 @@ maybe_mfence() {  # maybe_mfence <A1|A2> <刚跑完的 json> <编号>：尾部�
 }
 
 # ---- 1. 旧版本的主考核 ----
+phase_old_main() {
 log "阶段 1：$old 的 A 600 秒 → B 600 秒"
 one A1 "$s_old/A-600" --delay-us 500 --duration-sec "$main_sec" --samples "logs/tmp/$name-$old-A.samples"
 one B  "$s_old/B-600" --delay-us 500 --duration-sec "$main_sec" --samples "logs/tmp/$name-$old-B.samples"
 python3 scripts/ci.py --a "logs/tmp/$name-$old-A.samples" --b "logs/tmp/$name-$old-B.samples" --out "$s_old/ci.json" | tail -1
+}
 
 # ---- 2. 三者轮流，各 60 秒 ----
+phase_rot() {
 log "阶段 2：A1 / A2 / B 轮流，各 60 秒 × $rounds 轮"
 printf "$header" > "$raw/rot.tsv"
 orders=("A1 A2 B" "A2 B A1" "B A1 A2")
@@ -83,8 +91,10 @@ for i in $(seq 1 "$rounds"); do
         [[ $t != B ]] && maybe_mfence "$t" "$raw/rot/$t-$i.json" "rot$i"
     done
 done
+}
 
 # ---- 3. 三者连续监测，各 20 秒 ----
+phase_drift() {
 log "阶段 3：A1 / A2 / B 连续监测，各 20 秒，共 $drift_min 分钟"
 printf "$header" > "$raw/drift.tsv"
 end=$(( $(date +%s) + drift_min * 60 )); i=0
@@ -96,13 +106,22 @@ while (( $(date +%s) < end )); do
         [[ $t != B ]] && maybe_mfence "$t" "$raw/drift/$t-$id.json" "drift$id"
     done
 done
+}
 
 # ---- 4. 当前版本的主考核 ----
+phase_cur_main() {
 log "阶段 4：$cur 的 A 600 秒 → B 600 秒"
 scripts/write_meta.py "$s_cur/meta.json" "$name-$cur"
 one A2 "$s_cur/A-600" --delay-us 500 --duration-sec "$main_sec" --samples "logs/tmp/$name-$cur-A.samples"
 one B  "$s_cur/B-600" --delay-us 500 --duration-sec "$main_sec" --samples "logs/tmp/$name-$cur-B.samples"
 python3 scripts/ci.py --a "logs/tmp/$name-$cur-A.samples" --b "logs/tmp/$name-$cur-B.samples" --out "$s_cur/ci.json" | tail -1
+}
+
+if [[ $order == rot-first ]]; then
+    phase_rot; phase_drift; phase_cur_main; phase_old_main
+else
+    phase_old_main; phase_rot; phase_drift; phase_cur_main
+fi
 
 # ---- 5. 整理成两个会话目录（make_report.py 认的布局：ab/A-i、B-i；drift/runs/A-xxx、B-xxx）----
 for pair in "$s_old A1" "$s_cur A2"; do
