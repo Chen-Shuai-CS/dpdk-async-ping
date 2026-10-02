@@ -642,9 +642,11 @@ def section_versions(a):
     """代码版本 v1 → v2 的对比。"""
     out = []
     cols = [("v1 主考核", "logs/v1/final/A-600.json", "logs/v1/final/B-600.json", "logs/v1/final/ci.json"),
-            ("**v2 主考核**", a.main_a, a.main_b, a.ci),
+            ("v2 主考核", "logs/v2/final/A-600.json", "logs/v2/final/B-600.json", "logs/v2/final/ci.json"),
+            ("**v3 主考核**", a.main_a, a.main_b, a.ci),
             ("v1 · mfence 口径", "logs/v1/diag/A-mfence.json", "logs/v1/diag/B-mfence.json", "logs/v1/diag/ci-mfence.json"),
-            ("**v2 · mfence 口径**", os.path.join(a.diag_dir, "A-mfence.json"), os.path.join(a.diag_dir, "B-mfence.json"), os.path.join(a.diag_dir, "ci-mfence.json"))]
+            ("v2 · mfence 口径", "logs/v2/diag/A-mfence.json", "logs/v2/diag/B-mfence.json", "logs/v2/diag/ci-mfence.json"),
+            ("**v3 · mfence 口径**", os.path.join(a.diag_dir, "A-mfence.json"), os.path.join(a.diag_dir, "B-mfence.json"), os.path.join(a.diag_dir, "ci-mfence.json"))]
     cols = [c for c in cols if all(os.path.exists(os.path.join(ROOT, p)) for p in c[1:])]
     if len(cols) >= 2:
         t = [tax_parts(pa, pb, ci) for _, pa, pb, ci in cols]
@@ -660,7 +662,7 @@ def section_versions(a):
                 ("段②：平均 / p50 / p99 的 A − B", lambda x: f"{x['seg2']:+.1f} / {x['seg2_p50']:+.1f} / {x['seg2_p99']:+.1f}"),
                 ("进程内 p50：A / B / A − B", lambda x: f"{x['a']['p50']:.1f} / {x['b']['p50']:.1f} / **{x['p50']:+.1f}**"),
                 ("进程内 p99：A / B / A − B", lambda x: f"{x['a']['p99']:.1f} / {x['b']['p99']:.1f} / **{x['p99']:+.1f}**")]
-        out += ["两个版本各自的测量（不同时段跑的，所以除了代码之外还有时段的差别；ns）：\n",
+        out += ["各版本各自的正式测量（不同时段跑的，所以除了代码之外还有时段的差别；ns）：\n",
                 "| | " + " | ".join(c[0] for c in cols) + " |", "|---|" + "---|" * len(cols)]
         for label, fn in rows:
             out.append(f"| {label} | " + " | ".join(fn(x) for x in t) + " |")
@@ -702,6 +704,10 @@ def session_entries(a):
     if os.path.exists(os.path.join(ROOT, "logs/v1/final/meta.json")) and v1_ab:
         entries.append((load("logs/v1/final/meta.json"), "logs/v1/final/A-600.json", "logs/v1/final/B-600.json", "logs/v1/final/ci.json",
                         os.path.relpath(v1_ab[-1], ROOT)))
+    v2_ab = sorted(glob.glob(os.path.join(ROOT, "logs/v2/ab-*")))
+    if os.path.exists(os.path.join(ROOT, "logs/v2/final/meta.json")) and v2_ab:
+        entries.append((load("logs/v2/final/meta.json"), "logs/v2/final/A-600.json", "logs/v2/final/B-600.json", "logs/v2/final/ci.json",
+                        os.path.relpath(v2_ab[-1], ROOT)))
     ab = sorted(glob.glob(os.path.join(ROOT, a.ab)))
     meta_p = os.path.join(os.path.dirname(a.main_a), "meta.json")
     if os.path.exists(os.path.join(ROOT, meta_p)) and os.path.exists(os.path.join(ROOT, a.ci)):
