@@ -109,11 +109,16 @@ def cases():
         Case("mbuf-exhaust", "mbuf 池故意配得太小（1040 个，光 RX 环就要 1023 个）：运行中反复取不到 mbuf",
              ["--delay-us", "500", "--duration-sec", "5", "--mbufs", "1040"],
              # RX 环没有空 mbuf 时网卡只能把到达的包丢掉，并记入 imissed。被丢的绝大多数是 echo reply（→ 我们的超时），
-             # 偶尔也会是一个不相干的帧（ARP 等），所以 imissed 可以比超时数多出一两个
-             lambda r, x: ((c(r)["no_mbuf"] > 0 or r["port"]["rx_nombuf"] > 0) and 0 <= r["port"]["imissed"] - c(r)["timeouts"] <= 2,
+             # 偶尔也会是一个不相干的帧（ARP 等），所以 imissed 可以比超时数多出一两个。
+             # 反过来，丢得很凶的时候（一次运行上万个），有一部分丢失不在 imissed 里，也不在网卡的任何其他计数器里（见报告 §8）：
+             # 它们没有到达这张网卡。所以这里核对的是"imissed 解释了绝大部分丢失"，并把没解释的部分如实写出来。
+             lambda r, x: ((c(r)["no_mbuf"] > 0 or r["port"]["rx_nombuf"] > 0) and r["port"]["imissed"] > 0
+                           and r["port"]["imissed"] - c(r)["timeouts"] <= 2 and c(r)["timeouts"] - r["port"]["imissed"] <= 0.25 * c(r)["timeouts"],
                            f"驱动补 RX 环失败 {r['port']['rx_nombuf']:,} 次，发送侧取不到 mbuf {c(r)['no_mbuf']:,} 次（1 µs 后重试）；"
                            f"收到 {c(r)['received']:,}，丢失 {c(r)['timeouts']:,}，网卡 imissed 计数 {r['port']['imissed']:,}"
-                           "（丢包全部能由网卡的丢弃计数解释）"),
+                           + ("（丢包全部能由网卡的丢弃计数解释）" if abs(c(r)["timeouts"] - r["port"]["imissed"]) <= 2 else
+                              f"（网卡的丢弃计数解释了其中 {100 * r['port']['imissed'] / c(r)['timeouts']:.0f}%；"
+                              f"其余 {c(r)['timeouts'] - r['port']['imissed']:,} 个不在网卡的任何计数器里，见报告 §8）")),
              env={"BQ_FAULT_SKIP_MBUF_CHECK": "1"}),
         Case("small-rings", "RX / TX 环缩到 256 个描述符", ["--delay-us", "500", "--duration-sec", "5", "--rxd", "256", "--txd", "256"],
              lambda r, x: (c(r)["timeouts"] == 0 and c(r)["received"] > 100_000, f"收到 {c(r)['received']:,}，超时 {c(r)['timeouts']}，tx-full {c(r)['tx_full']}")),

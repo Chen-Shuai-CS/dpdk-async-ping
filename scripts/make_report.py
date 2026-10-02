@@ -460,6 +460,80 @@ def section_bisect(a):
     return "\n".join(out) + f"\n\n共 {n} 次运行。各版本的含义和重现方法见 `logs/r1-bisect/README.md`。" if n else "（没有数据）"
 
 
+def gap_row(r, prefix):
+    for m in r["metrics"]:
+        if m["name"].strip().startswith("(诊断) seg① " + prefix):
+            return m
+    return None
+
+
+def section_gap(a):
+    """§4.1：按"距上一次发送多久"分档之后，A 和 B 的段①差在哪。"""
+    A, B = load(a.main_a), load(a.main_b)
+    out = []
+    n = {k: metric(r, "seg①")["count"] for k, r in (("A", A), ("B", B))}
+    for k, r in (("B", B), ("A", A)):
+        g = gap_row(r, "距上次发送<100ns")
+        far = gap_row(r, "500ns–2µs")
+        share = 100 * g["count"] / n[k] if g else 0
+        if g and g["count"] >= 100:
+            out.append(f"- {k} 有 {share:.2f}% 的发送紧跟在上一次发送之后（间隔不到 100 ns）；这些发送的段① p50 是 {g['p50']} ns，"
+                       f"而间隔足够时（500 ns ~ 2 µs 那一档）是 {far['p50']} ns。")
+        else:
+            out.append(f"- {k} 几乎没有这样的发送（间隔不到 100 ns 的占 {share:.3f}%）。")
+    rows = []
+    for prefix in ("250–500ns", "500ns–2µs", "≥2µs"):
+        ga, gb = gap_row(A, prefix), gap_row(B, prefix)
+        rows.append(f"{prefix.replace('–', ' ~ ')}：{ga['p50']} / {gb['p50']}（p99 {ga['p99']} / {gb['p99']}）")
+    out.append("- 间隔在 250 ns 以上的各档，A / B 的段① p50 分别是 " + "；".join(rows) + " ns。")
+    return "\n".join(out)
+
+
+def section_placement(a):
+    """§4.4：同一段停顿落在哪一段——A、B、以及加了 mfence 的 A、B 并排。"""
+    rows = [("A", a.main_a), ("B", a.main_b), ("B，读 T0 前加 `mfence`", os.path.join(a.diag_dir, "B-mfence.json")),
+            ("A，读 T0 前加 `mfence`", os.path.join(a.diag_dir, "A-mfence.json"))]
+    out = ["| | 计分路径（① + ②）p50 | 计分路径 p99 | 段① ≥ 125 ns 占比 | 段③ p99（不计分） | ① + ② + ③ 平均 |", "|---|---|---|---|---|---|"]
+    for label, p in rows:
+        if not os.path.exists(os.path.join(ROOT, p)):
+            continue
+        r = load(p)
+        ip = metric(r, "in-process")
+        out.append(f"| {label} | {ip['p50']} | {ip['p99']} | {r['seg1_slow_percent']:.2f}% | {metric(r, 'seg③')['p99']} "
+                   f"| {sum(metric(r, n)['mean'] for n in ('seg①', 'seg②', 'seg③')):.1f} |")
+    return "\n".join(out)
+
+
+def section_summary(a):
+    """不进报告：把各文档要引用的关键数字集中打印出来（--print summary），写文档时从这里抄。"""
+    A, B, c = load(a.main_a), load(a.main_b), load(a.ci)
+    out = []
+    for k, r in (("A", A), ("B", B)):
+        ip, s1, s2, s3 = (metric(r, n) for n in ("in-process", "seg①", "seg②", "seg③"))
+        out.append(f"主考核 {k}：样本 {ip['count']:,}，sent {r['counters']['sent']:,}，丢 {r['counters']['timeouts']}，泄漏 {r['mbuf']['avail_initial'] - r['mbuf']['avail_final']}，"
+                   f"进程内 p50/p90/p99/p99.9/p99.99 = {ip['p50']}/{ip['p90']}/{ip['p99']}/{ip['p99_9']}/{ip['p99_99']}，平均 {ip['mean']:.1f}；"
+                   f"段① p50/p99 {s1['p50']}/{s1['p99']} 平均 {s1['mean']:.1f}；段② p50/p99 {s2['p50']}/{s2['p99']} 平均 {s2['mean']:.1f}；"
+                   f"段③ p50/p99 {s3['p50']}/{s3['p99']} 平均 {s3['mean']:.1f}；慢发送 {r['seg1_slow_percent']:.2f}%；"
+                   f"sleep 误差 p50/p99 {metric(r, 'sleep error')['p50']}/{metric(r, 'sleep error')['p99']}；"
+                   f"端到端 p50/p99 {metric(r, 'end-to-end')['p50'] / 1000:.1f}/{metric(r, 'end-to-end')['p99'] / 1000:.1f} µs；速率 {r['counters']['sent'] / r['elapsed_sec']:,.0f}/s；"
+                   f"停顿 {r['stalls']['count'] / r['elapsed_sec']:.0f} 次/秒 最长 {r['stalls']['max_ns'] / 1000:.0f} µs；commit {r['env']['git_commit']}")
+    m = c["metrics"]
+    for key, label in (("inproc", "进程内"), ("seg1", "段①"), ("seg2", "段②")):
+        d = m[key]["diff"]
+        out.append(f"{label} A − B（插值）：" + "，".join(f"{q} {d[q]['interp']:+.1f} {ci_str(d[q]['interp_ci'])}" for q in ("p50", "p90", "p99", "p99_9") if q in d)
+                   + f"；平均 {d['mean']['value']:+.1f}")
+    t = tax_parts(a.main_a, a.main_b, a.ci)
+    out.append(f"税单（主考核）：接收路径本身 {t['path']:+.1f}，批内排队 {t['queue']:+.1f}，发送侧调度 {t['send']:+.1f}，合计 {t['total']:+.1f}；"
+               f"每往后一个位置 A {t['incr_a']} B {t['incr_b']}")
+    cm = os.path.join(a.diag_dir, "ci-mfence.json")
+    if os.path.exists(os.path.join(ROOT, cm)):
+        tm = tax_parts(os.path.join(a.diag_dir, "A-mfence.json"), os.path.join(a.diag_dir, "B-mfence.json"), cm)
+        dm = load(cm)["metrics"]["inproc"]["diff"]
+        out.append(f"mfence 口径 A − B：平均 {dm['mean']['value']:+.1f}，p50 {dm['p50']['interp']:+.1f}，p99 {dm['p99']['interp']:+.1f}；"
+                   f"段①差 {tm['seg1']:+.1f}；税单 {tm['path']:+.1f} / {tm['queue']:+.1f} / {tm['send']:+.1f}，合计 {tm['total']:+.1f}")
+    return "\n".join(out)
+
+
 def section_stores(a):
     """剂量实验：T0 之前多做 N 次普通写入。"""
     d = os.path.join(ROOT, a.diag_dir)
@@ -540,7 +614,7 @@ def section_env(a):
 
 
 def sections_table():
-    return (("main", section_main), ("totals", section_totals), ("ab", section_ab), ("vab", section_vab), ("bisect", section_bisect), ("c", section_c), ("probe", section_probe),
+    return (("main", section_main), ("totals", section_totals), ("ab", section_ab), ("vab", section_vab), ("bisect", section_bisect), ("gap", section_gap), ("placement", section_placement), ("summary", section_summary), ("c", section_c), ("probe", section_probe),
             ("ci", section_ci), ("burst", section_burst), ("tax", section_tax), ("diag", section_diag), ("stores", section_stores),
             ("fault", section_fault), ("soak", section_soak), ("env", section_env))
 
@@ -564,7 +638,8 @@ def main():
     for name, fn in sections:
         pat = re.compile(rf"(<!-- BEGIN:{name} -->).*?(<!-- END:{name} -->)", re.S)
         if not pat.search(doc):
-            print(f"警告：{a.out} 里没有 {name} 标记", file=sys.stderr)
+            if name != "summary":   # summary 只用于 --print，不进报告
+                print(f"警告：{a.out} 里没有 {name} 标记", file=sys.stderr)
             continue
         if a.only and name not in a.only.split(","):
             continue

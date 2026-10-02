@@ -1,0 +1,46 @@
+EAL: No free 1048576 kB hugepages reported on node 0
+ENA_DRIVER: ena_get_metrics_entries(): 0x6 customer metrics are supported
+
+[probe] 段②子段（ns）：
+  T2→put 返回（分类+投递+wake）                    p50    120  p90    180  p99    280  p99.9    370
+  put 返回→开始 poll（回主循环+出队）                  p50     20  p90     20  p99     20  p99.9     20
+  开始 poll→T3（poll 到恢复）                     p50     20  p90     20  p99     20  p99.9    130
+ENA_DRIVER: ena_rx_queue_release(): Rx queue 0:0 released
+ENA_DRIVER: ena_tx_queue_release(): Tx queue 0:0 released
+
+==================== A · async-ping（自研 rt runtime） ====================
+sessions 64  delay 500 µs  duration 30 s (实际 30.00 s)  payload 64 B  timeout 10000 µs  TSC 2.600 GHz
+sent 3355019  received 3355019  timeouts 0  late 0  in-flight-at-end 0  unexpected 0  foreign 0  tsc-mismatch 0  other 0  arp-replied 1  tx-full 0  no-mbuf 0
+对账：sent − received − timeouts − in-flight = 0（应为 0）；丢包 = timeouts = 0（其中 0 个迟到收到）
+收包对账：rx 3355020 − (received + late + unexpected + foreign + tsc-mismatch + other + arp) = 0（应为 0）
+
+metric (ns)                       count      min     mean      p50      p90      p99    p99.9   p99.99        max
+in-process ①+②  [排名指标]          3355019      120      248      240      300      401      490      660      18840
+seg① send  T1−T0                3355019       70       84       80       90      100      170      270       6230
+seg② recv  T3−T2                3355019       50      164      150      210      320      410      540      18760
+end-to-end T3−T0                3355019    25530    72125    53366   159507   164233   238670   244972     300390
+seg③ wake→next T0               3355019       60      121       80      320      761      790     1387       5630
+sleep error                     3355019        0       32       10      130      270      803     3144      39130
+deadline→next T0 (误差+③)         3355019       60      153       90      450      821     1209     3581      39360
+  (诊断) seg① 距上次发送<100ns               0        0        0        0        0        0        0        0          0
+  (诊断) seg① 100–250ns                11       90       94       90      100      110      110      110        110
+  (诊断) seg① 250–500ns            570932       70       84       80       90      100      180      290       4480
+  (诊断) seg① 500ns–2µs           1606625       70       83       80       90      100      170      250       6230
+  (诊断) seg① ≥2µs                1177451       70       84       80       90      100      170      260       5010
+  (probe) ①取 mbuf               3355008       10       18       20       20       20       20       20       4920
+  (probe) ①写包                   3355008       10       17       20       20       20       30       30       6150
+  (probe) ①tx_burst             3355008       40       48       50       60       60      140      230       4850
+  (诊断) 维护: rte_timer_manage      299942       20       30       30       30       40       40      901       3760
+  (诊断) 维护: 整个节拍                  299942       50      390      360      650      827     1012     2836      24270
+
+段① ≥ 125 ns 的样本占 0.261%（段①是两段式分布，它的 p99 落在哪一段只看这个占比在 1% 的哪一边）
+rx_burst 包数分布（非空 burst）：1:87.10%  2:11.50%  3:1.33%  4:0.06%  其余更大的 burst 共 50 次（最大一次 16 个包）
+主循环被外部打断：空轮询 > 1 µs 共 5952 次（累计 18.0 ms，最长 34.4 µs）；取包前 > 10 µs 共 10 次（累计 0.2 ms，最长 39.6 µs）
+port: ipackets 3355020  opackets 1936074461  imissed 0  ierrors 0  oerrors 0  rx_nombuf 0
+AWS allowance（本次运行增量）：bw_in_allowance_exceeded=0  bw_out_allowance_exceeded=0  pps_allowance_exceeded=0  conntrack_allowance_exceeded=0  linklocal_allowance_exceeded=0
+mbuf：pool 8191，初值 avail 8191（端口启动后 7168），关停后 avail 8191 → 泄漏 0 ✔
+退出原因：到达 --duration-sec，停止发送并等在途请求收尾
+构建：commit e50c0f882898 · rustc 1.98.1 (48a229cea 2026-09-01) · DPDK 25.11.3 · release · features: probe
+环境：AMD EPYC 9R45 · 内核 6.18.48-107.148.amzn2023.x86_64 · 网卡 0000:28:00.0 驱动 igb_uio（写合并映射：是）· clocksource tsc · rdtscp constant_tsc nonstop_tsc tsc_known_freq
+时钟：读一次 rdtscp 平均 17.7 ns（每个被测段恰好含一次）；TSC 读数步长 26 周期 = 10.0 ns（时间戳分辨率，所有时间差都是它的整数倍）；周期→纳秒换算与 CLOCK_MONOTONIC_RAW 相差 +0.1 ppm
+[probe] tx_burst > 125 ns 的占比，按「发送计数 % 32」分（32 个 LLQ 条目 = 一个 4 KB 页）：0:0.14% 1:0.17% 2:0.26% 3:0.19% 4:0.14% 5:0.15% 6:0.22% 7:0.22% 8:0.16% 9:0.16% 10:0.21% 11:0.16% 12:0.13% 13:0.14% 14:0.19% 15:0.19% 16:0.15% 17:0.15% 18:0.23% 19:0.18% 20:0.14% 21:0.15% 22:0.27% 23:0.20% 24:0.15% 25:0.17% 26:0.42% 27:0.21% 28:0.16% 29:0.15% 30:0.26% 31:0.19%

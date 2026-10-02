@@ -2,7 +2,7 @@
 
 这份文档回答两个问题：**项目里的每一块代码是用来做什么的**，以及**每一项重要功能对应的代码在哪里**。
 
-- 仓库在 `~/dpdk-async-ping`。文中的路径都相对于仓库根目录；写成 `文件:行号` 的，行号以标签 `v3` 的代码为准（v3 相对 v2 只动了 `pingkit/src/samples.rs` 和 `dpdk/src/tsc.rs`；之后改动代码，行号会略有偏移，按函数名找即可）。
+- 仓库在 `~/dpdk-async-ping`。文中的路径都相对于仓库根目录；写成 `文件:行号` 的，行号以标签 `v4` 的代码为准（之后改动代码，行号会略有偏移，按函数名找即可）。
 - 不解释 Rust / DPDK / async 的基础概念，那些在 `~/Claude知识.md` 里；这里只讲"本项目的代码"。
 - 仓库里的副本是 `docs/CODE_GUIDE.md`，内容相同。
 
@@ -83,7 +83,7 @@
 | 在别的线程 wake → abort | `executor.rs:183 ~ 208` + `runtime.rs:57 ~ 82` | 靠线程局部变量 `CURRENT` 判断 |
 | timer：登记、触发、取消 | `crates/rt/src/timer.rs` | `Timers::fire` 73 行，`Sleep::poll` 107 行，取消在 `Drop`（139 行） |
 | 信箱：reactor 把回复交给 task | `crates/rt/src/sync.rs:17` `Mailbox` | `put` 34 行，`Recv::poll` 68 行 |
-| 应用怎么接入 runtime | `runtime.rs:14` `trait Driver` | A 的实现在 `async-ping/src/driver.rs:136` |
+| 应用怎么接入 runtime | `runtime.rs:14` `trait Driver` | A 的实现在 `async-ping/src/driver.rs:163` |
 | task 里怎么拿到网卡 | `runtime.rs:86` `with_port` | |
 | 不带网卡的运行（给单元测试用） | `runtime.rs:220` `run_offline` | |
 
@@ -91,13 +91,13 @@
 
 | 功能 | A（async-ping） | B（raw-ping） |
 |---|---|---|
-| 一个 session 的逻辑 | `main.rs:86` `session`（一个 async fn） | `main.rs:26` `State` 枚举 + `Raw` 的三个方法 |
-| 发送 | `main.rs:31` `send` | `main.rs:157` `on_timers` 里 |
-| 收到回复 | `driver.rs:144` `on_packet` → 信箱 → `main.rs:60` `wait_reply` | `main.rs:123` `on_reply` |
-| 超时扫描 | `driver.rs:192` `on_tick` | `main.rs:205` `scan_timeouts` |
-| 记录样本 | `main.rs:67` `record` | `on_timers` 里（163 行附近） |
-| 主循环 | 在 `rt` 里（`Runtime::run`） | `main.rs:270` 的 `loop` |
-| 启动与收尾 | `main.rs:113` `main` | `main.rs:224` `main` + `main.rs:304` `finish` |
+| 一个 session 的逻辑 | `main.rs:97` `session`（一个 async fn） | `main.rs:26` `State` 枚举 + `Raw` 的三个方法 |
+| 发送 | `main.rs:36` `send` | `main.rs:181` `on_timers` 里 |
+| 收到回复 | `driver.rs:171` `on_packet` → `Flow::accept`（62 行，核对身份）→ 信箱 → `main.rs:68` `wait_reply` | `main.rs:144` `on_reply` → `Session::judge`（73 行，核对身份） |
+| 超时扫描 | `driver.rs:222` `on_tick` | `main.rs:231` `scan_timeouts` |
+| 记录样本 | `main.rs:75` `record` | `on_timers` 里（191 行附近） |
+| 主循环 | 在 `rt` 里（`Runtime::run`） | `main.rs:293` 的 `loop` |
+| 启动与收尾 | `main.rs:124` `main` | `main.rs:247` `main` + `main.rs:327` `finish` |
 
 **两边共用（都在 `crates/pingkit/src/`）**
 
@@ -107,13 +107,14 @@
 | 初始化 DPDK、建 mbuf 池、起端口 | `dataplane.rs:67` `Dataplane::open` |
 | 关停、核对 mbuf 泄漏 | `dataplane.rs:96` `Dataplane::shutdown` |
 | 单实例锁 | `dataplane.rs:33` `instance_lock` |
-| **发送函数（段①的全部代码）** | `sender.rs:65` `Sender::send` |
-| 直方图 | `hist.rs:15` `Hist`；插值分位数在 `hist.rs:107` |
-| 计数器、各段的统计 | `stats.rs:14` `Counters`，`stats.rs:44` `Stats` |
-| 记一个样本 | `stats.rs:130` `on_reply` |
-| 记一次 sleep 的误差和段③ | `stats.rs:161` `on_wake` |
-| 核对回复带回的时间戳 | `stats.rs:172` `verify_echo` |
-| 最终报表（屏幕 + JSON） | `stats.rs:293` `Report`，打印在 `stats.rs:361`，写文件在 `stats.rs:554` |
+| **发送函数（段①的全部代码）** | `sender.rs:100` `Sender::send` |
+| 直方图 | `hist.rs:15` `Hist`；插值分位数在 `hist.rs:116` |
+| 计数器、各段的统计 | `stats.rs:14` `Counters`，`stats.rs:48` `Stats` |
+| 记一个样本 | `stats.rs:134` `on_reply` |
+| 记一次 sleep 的误差和段③ | `stats.rs:165` `on_wake` |
+| 一个回复算不算在等的那个请求的应答（A、B 共用的判定） | `matching.rs:26` `judge`，结果是 `Verdict`（13 行） |
+| record 时的二次核对 | `stats.rs:180` `verify_echo`；被拒绝的回复记在 `stats.rs:196` `on_tsc_mismatch` |
+| 最终报表（屏幕 + JSON） | `stats.rs:312` `Report`，打印在 `stats.rs:380`，写文件在 `stats.rs:576` |
 | 周期性维护（网卡 watchdog、回收 TX） | `house.rs:39` `maintain` |
 | 进度上报线程、信号处理 | `live.rs:63` `spawn_reporter`，`live.rs:39` `install_signal_handlers` |
 | 原始样本导出（`--samples`） | `samples.rs:30` `SampleLog` |
@@ -128,7 +129,7 @@
 | 主循环停顿检测 | `tsc.rs:102` `StallWatch` |
 | 时钟标定（读一次多少纳秒、步长多少） | `tsc.rs:72` `clock_read_cost` |
 | mbuf 的所有权 | `crates/dpdk/src/mbuf.rs:9` `Mbuf`，归还在 `mbuf.rs:104` 的 `Drop` |
-| 收一批包 / 发一个包 | `crates/dpdk/src/port.rs:119` `rx_burst`，`port.rs:131` `tx` |
+| 收一批包 / 发一个包 | `crates/dpdk/src/port.rs:161` `rx_burst`，`port.rs:173` `tx` |
 | 造一个 echo request（含增量校验和） | `crates/pingproto/src/lib.rs:132` `write_request` |
 | 认出一个包是什么 | `pingproto/src/lib.rs:172` `classify` |
 | 回 ARP | `pingproto/src/lib.rs:224` `arp_reply_in_place` |
@@ -141,7 +142,7 @@
 
 ### 2.1 启动（A 和 B 几乎一样）
 
-以 A 为例（`crates/async-ping/src/main.rs:113` 起）：
+以 A 为例（`crates/async-ping/src/main.rs:124` 起）：
 
 | 步骤 | 代码 | 做了什么 |
 |---|---|---|
@@ -155,7 +156,7 @@
 | 8 | `Runtime::new` + 64 次 `rt.spawn(session(…))` | 每个 session 是一个 task；初始相位均匀错开在一个 delay 周期内 |
 | 9 | `rt.run(&dp.port, &driver)` | 进入主循环，直到所有 session 结束 |
 
-B 的 1 ~ 7 步完全相同（`crates/raw-ping/src/main.rs:224` 起）。第 8 步换成"建一个 `Vec<Session>` 状态表，把每个 session 的初始 deadline 放进堆里"；第 9 步换成自己写的 `loop`（270 行）。
+B 的 1 ~ 7 步完全相同（`crates/raw-ping/src/main.rs:247` 起）。第 8 步换成"建一个 `Vec<Session>` 状态表，把每个 session 的初始 deadline 放进堆里"；第 9 步换成自己写的 `loop`（293 行）。
 
 ### 2.2 A 的一个请求：从 timer 到期到下一次 sleep
 
@@ -167,41 +168,41 @@ B 的 1 ~ 7 步完全相同（`crates/raw-ping/src/main.rs:224` 起）。第 8 �
 2. `fire` 从堆里弹出所有 deadline ≤ now 的 timer，把槽位标成 `Fired(now)`，调用登记在里面的 Waker。
 3. `Waker::wake` → `waker_wake`（`executor.rs:183`）：通过线程局部变量找到当前 runtime，核对编号和代数，把任务号推进就绪队列（`ReadyQueue::push`，31 行）。
 4. 回到主循环，`run_ready`（`executor.rs:106`）出队，调用这个 task 的 `poll`。
-5. task 是 `session()` 这个 async fn（`async-ping/src/main.rs:86`）。它上次停在 `sleep_until(…).await`，这次 `Sleep::poll`（`timer.rs:107`）发现槽位是 `Fired`，返回 `SleepInfo { deadline, fired_at }`。
+5. task 是 `session()` 这个 async fn（`async-ping/src/main.rs:97`）。它上次停在 `sleep_until(…).await`，这次 `Sleep::poll`（`timer.rs:107`）发现槽位是 `Fired`，返回 `SleepInfo { deadline, fired_at }`。
 6. session 接着往下走：`record(…)`（67 行）把**上一个**请求的样本记进统计，并在这里释放上一个回复的 mbuf。
 
 **第 ② 步：发送（段①：T0 → T1）**
 
-7. `send(&sh, id, seq).await`（`main.rs:31`）：第一行读时钟，这就是 **T0**（36 行）。
+7. `send(&sh, id, seq).await`（`main.rs:36`）：第一行读时钟，这就是 **T0**（41 行）。
 8. `with_port(|p| sh.sender.send(p, t0, id, seq))`：向 runtime 取端口（`runtime.rs:86`），调用共用的发送函数。
-9. `Sender::send`（`pingkit/src/sender.rs:65`）：从池里取一个 mbuf → 写入帧模板、id、seq、T0、校验和（`pingproto` 的 `write_request`）→ `port.tx(m)`（`dpdk/src/port.rs:131`）→ 读时钟，这就是 **T1**（`sender.rs:75`）。
-10. 回到 `send`：登记"我在等 seq，超时时刻是 T0 + timeout"（`Flow::arm`，`driver.rs:49`），已发送数加一。
+9. `Sender::send`（`pingkit/src/sender.rs:100`）：从池里取一个 mbuf → 写入帧模板、id、seq、T0、校验和（`pingproto` 的 `write_request`）→ `port.tx(m)`（`dpdk/src/port.rs:173`）→ 读时钟，这就是 **T1**（`sender.rs:116`）。
+10. 回到 `send`：登记"我在等 seq，超时时刻是 T0 + timeout"（`Flow::arm`，`driver.rs:53`），已发送数加一。
 11. 回到 `session`：`on_wake(…)` 记下刚才那次 sleep 的误差和段③。
 
 **第 ③ 步：等回复**
 
-12. `wait_reply(&sh, id, seq).await`（`main.rs:60`）→ `flow.mailbox.recv().await`。信箱是空的，`Recv::poll`（`sync.rs:68`）把自己的 Waker 存进信箱，返回 `Pending`。
+12. `wait_reply(&sh, id, seq).await`（`main.rs:68`）→ `flow.mailbox.recv().await`。信箱是空的，`Recv::poll`（`sync.rs:68`）把自己的 Waker 存进信箱，返回 `Pending`。
 13. `session` 的 poll 返回，`run_ready` 继续处理就绪队列里的其他 task；队列空了就回到主循环。这个 session 现在"睡着了"，不占用任何 CPU。
 
 **第 ④ 步：回复到达（段②：T2 → T3）**
 
 14. 主循环调用 `port.rx_burst`（`runtime.rs:175` 附近），返回 n > 0。读时钟，这就是 **T2**（177 行），同一批的包共用它。
-15. 对每个包调用 `driver.on_packet(m, t2, port)`（`async-ping/src/driver.rs:144`）：
+15. 对每个包调用 `driver.on_packet(m, t2, port)`（`async-ping/src/driver.rs:171`）：
     - `classify`（`pingproto/src/lib.rs:172`）认出它是对端发来的 echo reply，取出 id、seq、带回的时间戳；
     - 用 id 找到 `Flow`，检查 seq 正是它在等的那个；
     - `f.mailbox.put(Ok(Reply { mbuf, t2, tx_tsc }))`（`rt/src/sync.rs:34`）：把回复（包括 mbuf 的所有权）放进信箱，并调用存在里面的 Waker。
 16. `waker_wake` 把这个 session 的任务号推进就绪队列（同第 3 条）。
 17. **每处理一个包，主循环立刻 `run_ready`**（`runtime.rs` 的 `for m in burst.by_ref()` 循环里）：出队，poll 这个 session。
-18. `Recv::poll` 这次从信箱里取到了回复，返回 `Ready`。`session` 从 `wait_reply().await` 之后继续执行，第一行读时钟，这就是 **T3**（`main.rs:94`）。
+18. `Recv::poll` 这次从信箱里取到了回复，返回 `Ready`。`session` 从 `wait_reply().await` 之后继续执行，第一行读时钟，这就是 **T3**（`main.rs:105`）。
 
 **第 ⑤ 步：收尾，再次 sleep**
 
-19. 已收到数加一；`sleep_until(t3 + delay).await`（`main.rs:107`）：`Sleep::poll` 把 timer 登记进堆，返回 `Pending`。回复（和它的 mbuf）此时还被这个 task 持有着。
+19. 已收到数加一；`sleep_until(t3 + delay).await`（`main.rs:118`）：`Sleep::poll` 把 timer 登记进堆，返回 `Pending`。回复（和它的 mbuf）此时还被这个 task 持有着。
 20. 回到第 ① 步，循环。
 
 ### 2.3 B 的同一个请求
 
-B 没有 task、没有 Waker、没有就绪队列。每个 session 是状态表里的一行（`raw-ping/src/main.rs:46` `Session`），状态是一个枚举（26 行）：`Sleeping` / `Waiting` / `Done`。主循环（270 行）每一轮同样做三件事：
+B 没有 task、没有 Waker、没有就绪队列。每个 session 是状态表里的一行（`raw-ping/src/main.rs:46` `Session`），状态是一个枚举（26 行）：`Sleeping` / `Waiting` / `Done`。主循环（293 行）每一轮同样做三件事：
 
 | A 的步骤 | B 对应的代码 | 区别 |
 |---|---|---|
@@ -217,8 +218,8 @@ B 没有 task、没有 Waker、没有就绪队列。每个 session 是状态表�
 
 两边都有，做的事相同：
 
-- A：`runtime.rs` 主循环的第 3 部分调用 `driver.on_tick`（`async-ping/src/driver.rs:192`）；
-- B：主循环里的 `if house.due(now) { … }`（`raw-ping/src/main.rs:278` 附近）。
+- A：`runtime.rs` 主循环的第 3 部分调用 `driver.on_tick`（`async-ping/src/driver.rs:222`）；
+- B：主循环里的 `if house.due(now) { … }`（`raw-ping/src/main.rs:301` 附近）。
 
 内容：
 
@@ -257,31 +258,31 @@ A 在 `main.rs` 的 `rt.run` 返回之后（约 160 行起），B 在 `finish`�
 
 ### 3.2 `dpdk`：安全封装
 
-**解决什么问题**：把"容易用错的 C 接口"变成"用错了就编译不过的 Rust 类型"。项目里 58 处 unsafe 有 46 处在这里，上层拿到的是安全的类型。
+**解决什么问题**：把"容易用错的 C 接口"变成"用错了就编译不过的 Rust 类型"。项目里 59 处 unsafe 有 47 处在这里（其中 1 处在它的集成测试里），上层拿到的是安全的类型。
 
 | 类型 / 函数 | 位置 | 作用 | 设计要点 |
 |---|---|---|---|
 | `Eal` | `eal.rs:8` | "DPDK 已初始化"的凭证 | 全进程只能有一个（`init` 里用原子标志防重复）；`cleanup` 是 `unsafe` 的，因为调用后所有 DPDK 对象都失效 |
-| `Mempool` | `mempool.rs:8` | mbuf 池 | 创建后故意"泄漏"成 `&'static`：从类型上保证池不会比 mbuf 先消失 |
-| `Mempool::alloc` | `mempool.rs:40` | 取一个空 mbuf | 池空返回 `None`，不 panic |
-| `Mempool::avail_count` | `mempool.rs:28` | 池里还有多少个可用 | 零泄漏核对用的就是它 |
+| `Mempool` | `mempool.rs:8` | mbuf 池 | 创建后故意"泄漏"成 `&'static`：从类型上保证池不会比 mbuf 先消失。创建时必须出示 `&Eal`（v4）："EAL 已初始化"由签名保证 |
+| `Mempool::alloc` | `mempool.rs:43` | 取一个空 mbuf | 池空返回 `None`，不 panic |
+| `Mempool::avail_count` | `mempool.rs:31` | 池里还有多少个可用 | 零泄漏核对用的就是它 |
 | **`Mbuf`** | `mbuf.rs:9` | 一个包缓冲区的**唯一所有者** | 不能复制；`Drop`（104 行）时归还池子；内含裸指针所以不能跨线程 |
 | `Mbuf::data` / `data_mut` / `set_len` | `mbuf.rs:64 / 75 / 87` | 读、写包内容，设长度 | 返回的切片借用 `Mbuf`，不会比它活得久 |
 | `Mbuf::into_raw` | `mbuf.rs:23` | 放弃所有权（交给网卡时用） | 只有 `Port::tx` 调用它 |
-| **`Port`** | `port.rs:17` | 一个网卡端口（固定用 0 号收发队列） | 故意做成不能跨线程（`PhantomData<*const ()>`） |
-| `Port::configure` / `start` / `stop` / `close` | `port.rs:36 / 83 / 90 / 96` | 生命周期 | `close` 消耗 `self`，之后无法再用 |
-| `Port::rx_burst` | `port.rs:119` | 收一批包 | 结果放进 `RxBurst`，逐个以 `Mbuf` 的形式交出 |
-| `Port::tx` | `port.rs:131` | 发一个包 | 成功：所有权交给网卡；失败：**原样还给调用者** |
-| `Port::tx_done_cleanup` | `port.rs:145` | 主动回收已发完的 mbuf | 在维护节拍里调用，不让回收落进发送路径 |
-| `Port::stats` / `xstats` | `port.rs:151 / 166` | 网卡计数器 | `xstats` 里有 AWS 的限额计数 |
-| `Port::reset_requested` | `port.rs:188` | 网卡是否要求 reset | 回调函数（194 行）只写一个原子变量 |
-| `RxBurst` | `port.rs:201` | 一次 `rx_burst` 的结果 | 是个迭代器；没取走的包在下次收包或 `Drop` 时自动释放 |
+| **`Port`** | `port.rs:33` | 一个网卡端口（固定用 0 号收发队列） | 故意做成不能跨线程（`PhantomData<*const ()>`）；同一个端口号只能领出一个句柄（`CLAIMED`，16 行）。类型上方的注释逐条列出了安全接口依赖的前提各由什么保证 |
+| `Port::configure` / `start` / `stop` / `close` | `port.rs:54 / 107 / 119 / 130` | 生命周期 | `configure` 独占领取端口号；`close` 消耗 `self`，还在运行会先停止，成功后归还端口号。未启动 / 停止后调用收发是无害的（DPDK 把收发函数换成返回 0 的空函数），`crates/dpdk/tests/lifecycle.rs` 实测了这几种顺序 |
+| `Port::rx_burst` | `port.rs:161` | 收一批包 | 结果放进 `RxBurst`，逐个以 `Mbuf` 的形式交出 |
+| `Port::tx` | `port.rs:173` | 发一个包 | 成功：所有权交给网卡；失败：**原样还给调用者** |
+| `Port::tx_done_cleanup` | `port.rs:187` | 主动回收已发完的 mbuf | 在维护节拍里调用，不让回收落进发送路径 |
+| `Port::stats` / `xstats` | `port.rs:193 / 208` | 网卡计数器 | `xstats` 里有 AWS 的限额计数 |
+| `Port::reset_requested` | `port.rs:230` | 网卡是否要求 reset | 回调函数（235 行）只写一个原子变量 |
+| `RxBurst` | `port.rs:243` | 一次 `rx_burst` 的结果 | 是个迭代器；没取走的包在下次收包或 `Drop` 时自动释放 |
 | `tsc::rdtsc` | `tsc.rs:10` | 读时钟 | 名字叫 rdtsc，实际执行 `rdtscp`（原因见函数上方的注释） |
 | `tsc::cycles_to_ns` / `ns_to_cycles` | `tsc.rs:24 / 29` | 周期与纳秒互换 | |
 | `tsc::clock_read_cost` | `tsc.rs:72` | 标定读时钟的成本和步长 | 启动时调用一次 |
 | `tsc::StallWatch` | `tsc.rs:102` | 停顿检测 | 两类：空轮询停顿（`tick`）、取包前停顿（`tick_rx`） |
 | `tsc::sfence` / `mfence` | `tsc.rs:35 / 42` | 诊断开关用的两条指令 | |
-| `tsc::prefetch_write` | `tsc.rs:52` | 把一条缓存行以"可写"状态提前取进缓存 | v3 加的；只有样本导出在用（`samples.rs:55` 的 `push`），原因见报告 §3.5 |
+| `tsc::prefetch_write` | `tsc.rs:52` | 把一条缓存行以"可写"状态提前取进缓存 | v3 加的；只有样本导出在用（`samples.rs:55` 的 `push`），原因见 `docs/HISTORY.md` 第 2 节 |
 | `Error` | `error.rs` | 错误类型：哪一步失败 + errno | |
 
 ### 3.3 `pingproto`：协议
@@ -358,9 +359,10 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 |---|---|---|
 | `args.rs` | 308 | 命令行参数（9 行起）；诊断开关（94 ~ 140 行）；`sample_capacity`（171 行）；合法性检查 `resolve`（190 行）；读 `nic.env`（231 行） |
 | `dataplane.rs` | 113 | `Dataplane::open` / `shutdown`；单实例锁；`LeakReport` |
-| `sender.rs` | 96 | **发送函数**。`Stamp`（7 行）是一次发送留下的记录：T0、T1、距上次发送多久 |
-| `hist.rs` | 241 | 直方图。小于 256 的值精确记录，更大的值每个 2 的幂分 128 个桶。`record`（53 行）、`quantile`（82 行）、`quantile_interp`（107 行）、`fraction_at_or_above`（137 行） |
-| `stats.rs` | 614 | 计数器、各段的直方图、报表。见下 |
+| `sender.rs` | 137 | **发送函数**。`Stamp`（7 行）是一次发送留下的记录：T0、T1、距上次发送多久。`TxFault`（53 行）是故障注入钩子，只在 cargo 特性 `fault` 打开时才编译进来 |
+| `matching.rs` | 71 | **回复的身份判定**：`judge`（26 行）。A、B 共用；判定表有单元测试 |
+| `hist.rs` | 330 | 直方图。小于 256 的值精确记录，更大的值每个 2 的幂分 128 个桶。`record`（53 行）、`quantile`（82 行）、`quantile_interp`（116 行：窄桶按时钟格点插值，宽桶只在桶内插值）、`fraction_at_or_above`（157 行） |
+| `stats.rs` | 645 | 计数器、各段的直方图、报表。见下 |
 | `house.rs` | 48 | 维护节拍：`House::due`（21 行）判断该不该做了；`maintain`（39 行）做什么；`START_LEAD_NS`（34 行）是起点延后的 1 ms |
 | `live.rs` | 90 | 上报线程（只读几个原子计数器）；信号处理；绑核 |
 | `samples.rs` | 140 | 原始样本：一个样本压成 8 字节，写进预先分配好的数组；每写一个样本预取下一条缓存行（v3） |
@@ -371,16 +373,17 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 
 | 符号 | 位置 | 作用 |
 |---|---|---|
-| `Counters` | 14 行 | 所有计数：sent、received、timeouts、late、unexpected、foreign、tsc_mismatch、other_rx、arp_replies、tx_full、no_mbuf…… |
-| `Stats` | 44 行 | 各段的直方图 + 计数器 + 异常明细 + 样本记录 |
-| `on_reply` | 130 行 | 一个样本进来：记段①、段②、进程内、端到端；按"距上次发送多久"分档；写原始样本 |
-| `on_wake` | 161 行 | 一次 sleep 结束：记 sleep 误差、段③、"deadline → 下一个 T0" |
-| `verify_echo` | 172 行 | 回复带回的时间戳必须等于我们写进去的 T0；不等就计数并返回 false |
-| `note_anomaly` | 202 行 | 记一条异常明细（最多 16 条） |
-| `rows` | 216 行 | 把各直方图变成报表的行 |
-| `Report::print` | 361 行 | 屏幕上看到的那份报告就是这里打印的，从上到下一一对应 |
-| `port_summary` | 474 行 | 读网卡计数器，算 AWS 限额计数在本次运行里的增量 |
-| `Report::new` / `emit` | 498 / 554 行 | 组装报告；打印 + 写 JSON + 写样本文件 |
+| `Counters` | 14 行 | 所有计数：sent、received、timeouts、late、unexpected、foreign、tsc_mismatch（被拒绝的回复）、record_mismatch（二次核对不符，应恒为 0）、other_rx、arp_replies、tx_full、no_mbuf…… |
+| `Stats` | 48 行 | 各段的直方图 + 计数器 + 异常明细 + 样本记录 |
+| `on_reply` | 134 行 | 一个样本进来：记段①、段②、进程内、端到端；按"距上次发送多久"分档；写原始样本 |
+| `on_wake` | 165 行 | 一次 sleep 结束：记 sleep 误差、段③、"deadline → 下一个 T0" |
+| `verify_echo` | 180 行 | record 时的二次核对：session 自己记下的 T0 必须等于它持有的回复带回的时间戳；不等就计入 `record_mismatch` 并返回 false。**这一道不能随手删**（函数上方的注释和报告 §3.4 说明了原因） |
+| `on_tsc_mismatch` | 196 行 | 接收时被拒绝的回复：计数并留下明细（冷路径） |
+| `note_anomaly` | 221 行 | 记一条异常明细（最多 16 条） |
+| `rows` | 235 行 | 把各直方图变成报表的行 |
+| `Report::print` | 380 行 | 屏幕上看到的那份报告就是这里打印的，从上到下一一对应 |
+| `port_summary` | 496 行 | 读网卡计数器，算 AWS 限额计数在本次运行里的增量 |
+| `Report::new` / `emit` | 520 / 576 行 | 组装报告；打印 + 写 JSON + 写样本文件 |
 
 ### 3.7 `async-ping`：A
 
@@ -430,24 +433,24 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 
 | | A | B |
 |---|---|---|
-| **T0**（决定发送） | `async-ping/src/main.rs:36`，`send()` 里读时钟 | `raw-ping/src/main.rs:181`，`on_timers` 里调用发送函数之前 |
-| **T1**（`tx_burst` 返回） | `pingkit/src/sender.rs:75` | 同一行（同一个函数） |
-| **T2**（`rx_burst` 返回） | `rt/src/runtime.rs:177` | `raw-ping/src/main.rs:95` |
-| **T3**（回复交到 session 手里） | `async-ping/src/main.rs:94`，`wait_reply().await` 之后 | `raw-ping/src/main.rs:131`，`on_reply` 里状态匹配成功之后 |
-| "timer 发现到期"的时刻 | `rt/src/runtime.rs:188` 的 `now` | `raw-ping/src/main.rs:275` 的 `now` |
+| **T0**（决定发送） | `async-ping/src/main.rs:41`，`send()` 里读时钟 | `raw-ping/src/main.rs:207`，`on_timers` 里调用发送函数之前 |
+| **T1**（`tx_burst` 返回） | `pingkit/src/sender.rs:116` | 同一行（同一个函数） |
+| **T2**（`rx_burst` 返回） | `rt/src/runtime.rs:177` | `raw-ping/src/main.rs:116` |
+| **T3**（回复交到 session 手里） | `async-ping/src/main.rs:105`，`wait_reply().await` 之后 | `raw-ping/src/main.rs:153`，`on_reply` 里状态匹配成功之后 |
+| "timer 发现到期"的时刻 | `rt/src/runtime.rs:188` 的 `now` | `raw-ping/src/main.rs:298` 的 `now` |
 
 | 量 | 定义 | 在哪里算 |
 |---|---|---|
-| 段① | T1 − T0 | `stats.rs:130` `on_reply` |
+| 段① | T1 − T0 | `stats.rs:134` `on_reply` |
 | 段② | T3 − T2 | 同上 |
 | 进程内耗时（排名指标） | 段① + 段② | 同上 |
 | 端到端 | T3 − T0 | 同上 |
-| sleep 误差 | 发现到期 − deadline | `stats.rs:161` `on_wake` |
+| sleep 误差 | 发现到期 − deadline | `stats.rs:165` `on_wake` |
 | 段③ | 下一个 T0 − 发现到期 | 同上 |
 
 所有读时钟都是 `dpdk::tsc::rdtsc()` 这一个函数。两边每个请求读时钟的次数相同：T0、T1、T2（一批共用）、T3，加上主循环每轮一次。
 
-诊断开关 `--diag-pre-t0` 的执行点在读 T0 的前一行：A 是 `main.rs:33 ~ 35`，B 是 `main.rs:178 ~ 180`。
+诊断开关 `--diag-pre-t0` 的执行点在读 T0 的前一行：A 是 `main.rs:38 ~ 40`，B 是 `main.rs:204 ~ 206`。
 
 ---
 
@@ -458,26 +461,30 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 | 环节 | 代码 |
 |---|---|
 | mbuf 只有一个所有者，丢弃即归还 | `dpdk/src/mbuf.rs:104` `Drop for Mbuf` |
-| 发送失败时 mbuf 原样退回 | `dpdk/src/port.rs:131` `tx` 的返回类型 `Result<(), Mbuf>` |
-| 一批包里没取走的自动释放 | `port.rs:239` `Drop for RxBurst` |
+| 发送失败时 mbuf 原样退回 | `dpdk/src/port.rs:173` `tx` 的返回类型 `Result<(), Mbuf>` |
+| 一批包里没取走的自动释放 | `port.rs:281` `Drop for RxBurst` |
 | 记下初始可用数 | `pingkit/src/dataplane.rs` `open` 里的 `avail_initial` |
 | 收尾时先丢弃程序手里的 mbuf | A：`drop(rt)` + 清信箱；B：`drop(raw.sessions)` |
 | 停端口后比较可用数 | `dataplane.rs:96` `shutdown` |
 | 有泄漏则退出码为 3 | 两个 `main` 的最后一行 |
 
-### 5.2 超时、迟到、对不上号、外来回复
+### 5.2 超时、迟到、对不上号、外来回复、被拒绝的回复
+
+A 和 B 的判定来自同一个函数 `pingkit::matching::judge`（`matching.rs:26`）：输入"在等的 (seq, T0)"和"到达的 (seq, 回带的时间戳)"，输出 `Accept / TscMismatch / Late / Unexpected`。
+判定在**把请求标记为完成之前**做完（v4 起；此前是 `id/seq` 对上就完成，时间戳在 sleep 之后才核对）。
 
 | 情况 | 怎么判定 | A | B |
 |---|---|---|---|
-| 超时 | 维护节拍里 `now ≥ timeout_at` | `driver.rs:192` `on_tick`，往信箱放 `Err(Timeout)` | `main.rs:205` `scan_timeouts` |
-| 迟到（超时之后回复才到） | seq 在"最近 4 个超时的 seq"里 | `driver.rs:62` `timed_out_before` | `main.rs:139` 附近 |
+| 超时 | 维护节拍里 `now ≥ timeout_at` | `driver.rs:222` `on_tick`，往信箱放 `Err(Timeout)` | `main.rs:231` `scan_timeouts` |
+| 迟到（超时之后回复才到） | seq 在"最近 4 个超时的 seq"里 | `driver.rs:89` `timed_out_before` | `main.rs:78`（`Session::judge` 里） |
 | 对不上号 | 是对端的回复，但 seq 既不是在等的、也不是最近超时的 | `on_packet` 的最后一个分支 | `on_reply` 的最后一个分支 |
 | 外来回复 | 源 IP 不是对端 | `pingproto/src/lib.rs:197` 返回 `ForeignEchoReply` | 同左 |
-| 时间戳不符 | 回复带回的时间戳 ≠ 我们写入的 T0 | `stats.rs:172` `verify_echo`，这样的样本不进延迟分布 | 同左 |
+| 时间戳不符（被拒绝） | `id/seq` 对得上，但回复带回的时间戳 ≠ 在等的那个请求写入的 T0（seq 回绕后的旧回复、重放、损坏） | `driver.rs:62` `Flow::accept` 返回 `TscMismatch`：计数、释放 mbuf，**在途请求和它的超时时刻原样保留** | `main.rs:73` `Session::judge`，处理相同 |
+| record 时二次核对不符 | session 自己记下的 T0 ≠ 它持有的回复带回的时间戳（只可能是程序自身状态不一致，应恒为 0） | `stats.rs:180` `verify_echo`，这样的样本不进延迟分布 | 同左 |
 
 ### 5.3 两条对账
 
-打印在 `stats.rs:361` `Report::print` 的开头：
+打印在 `stats.rs:380` `Report::print` 的开头：
 
 - 请求对账：`sent − received − timeouts − in-flight = 0`；
 - 收包对账：`rx − (received + late + unexpected + foreign + other + arp) = 0`。
@@ -490,7 +497,7 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 |---|---|
 | 到时间 | 维护节拍里 `now >= end` → `stopping = true` |
 | SIGINT / SIGTERM | `live.rs:34` 的处理函数只置 `STOP`；维护节拍里 `stop_requested()` |
-| 网卡要求 reset | `port.rs:188` `reset_requested()`；A 的 `on_tick` 返回 false，B 直接 `break` |
+| 网卡要求 reset | `port.rs:230` `reset_requested()`；A 的 `on_tick` 返回 false，B 直接 `break` |
 
 `stopping` 置位后，session 不再发新请求，等在途的收到或超时，然后结束；全部结束后主循环退出。
 
@@ -513,7 +520,7 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 
 | crate | 处数 | 是什么 |
 |---|---|---|
-| `dpdk` | 45 | 调用 DPDK 的 C 函数；读 mbuf 的字段；`rdtscp` 等指令 |
+| `dpdk` | 47 | 调用 DPDK 的 C 函数；读 mbuf 的字段；`rdtscp`、预取等指令；集成测试 `tests/lifecycle.rs` 末尾的 `eal.cleanup()`（1 处） |
 | `rt` | 6 | Waker 的 4 个 vtable 函数（`executor.rs:176 ~ 202`）；2 处解引用线程局部的 runtime 指针（`runtime.rs:72`、`91`） |
 | `pingkit` | 4 | 注册信号处理函数、绑核（`live.rs`）；读内核单调时钟（`envinfo.rs`）；诊断开关里的 volatile 写（`args.rs`） |
 | A、B | 各 1 | `main` 最后的 `eal.cleanup()` |
@@ -534,20 +541,26 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 
 ## 第 6 章 测试
 
-`cargo test --release --workspace`：35 个，不需要网卡和 root。
+`cargo test --release --workspace`：50 个，不需要网卡和 root。
 
 | 位置 | 个数 | 测什么 |
 |---|---|---|
 | `crates/rt/tests/offline.rs` | 11 | runtime：sleep 按 deadline 顺序醒来且不早到；信箱顺序交接；poll 期间自己唤醒自己 1000 次不丢；过期的 Waker 不会唤醒复用同一槽位的新任务；丢弃 runtime 时释放未完成 task 持有的资源；取消的 sleep 不误触发；deadline 已过的 sleep 在下一次 timer 阶段触发；死锁检测；在别的线程 / 另一个 runtime 里 wake 会 abort（在子进程里验证）；runtime 结束后的迟到 wake 被忽略 |
 | `crates/pingproto/src/tests.rs` | 6 | 增量校验和与全量重算在 100 万组随机数据上逐位一致；帧布局；认包；别的主机发来的回复不会被当成我们的；ARP 原地应答；地址解析 |
-| `crates/pingkit/src/hist.rs` 末尾 | 4 | 分桶边界；分位数精度；插值分位数（模拟 10 ns 步长的时钟）；尾部占比 |
+| `crates/pingkit/src/hist.rs` 末尾 | 7 | 分桶边界；分位数精度；插值分位数（模拟 10 ns 步长的时钟）；宽桶里的插值不越出桶；窄桶 / 宽桶的分界；长尾混合分布；尾部占比 |
+| `crates/pingkit/src/matching.rs` 末尾 | 2 | 判定表（接受 / 时间戳不符 / 迟到 / 对不上号）；匹配时不去查超时历史 |
+| `crates/async-ping/src/driver.rs` 末尾 | 4 | A 的 session 状态转换：错包先到再来正确的包；错包先到而正确的包一直不来（按原定时刻超时）；seq 回绕后的旧回复；什么都对不上的回复 |
+| `crates/raw-ping/src/main.rs` 末尾 | 4 | B 的同一组场景、同一组预期 |
+| `crates/dpdk/tests/lifecycle.rs` | 1 | 端口生命周期（用 DPDK 自带的虚拟网卡 `net_null`）：重复领取被拒绝；未启动 / 停止后收发无害；未停止就关闭会先停止；全程 mbuf 零泄漏 |
 | `crates/pingkit/src/samples.rs` 末尾 | 4 | 打包与还原；没开时不记录；写满即停；文件布局 |
-| `crates/pingkit/src/stats.rs` 末尾 | 4 | 一个样本进来各段都对；时间戳不符的被计数并排除；异常明细有上限；sleep 误差与段③的拆分 |
+| `crates/pingkit/src/stats.rs` 末尾 | 5 | 一个样本进来各段都对；record 时的二次核对；被拒绝的回复单独计数；异常明细有上限；sleep 误差与段③的拆分 |
 | `crates/pingkit/src/args.rs` 末尾 | 3 | 默认值合法；边界值；样本缓冲区的容量估算 |
 | `crates/dpdk/src/tsc.rs` 末尾 | 2 | 停顿检测区分两类；时钟标定结果合理 |
 | `crates/timerq/src/lib.rs` 末尾 | 1 | 按 deadline 顺序弹出 |
 
-需要网卡的测试：`scripts/fault.py`（故障注入，20 个场景 × A / B）。
+需要网卡的测试：`scripts/fault.py`（故障注入，25 个场景 × A / B；其中 5 个"发送持续失败"的场景用带故障钩子的专用构建，cargo 特性 `fault`，正式的可执行文件里没有这段代码）。
+
+检查器自己也有自检：`scripts/check-compliance.sh --self-test`（命令不存在、非零退出、输出里没有错误字样但失败了……都必须判为未通过）。
 
 ---
 
@@ -572,10 +585,11 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 | 脚本 | 作用 |
 |---|---|
 | `ab.sh N 秒数` | A、B 交替 N 对 |
-| `campaign.sh [阶段…]` | 一键重测报告里的全部数据（主考核、交替、诊断口径、辅助对比、故障注入、30 分钟、probe） |
+| `campaign.sh [阶段…]` | 一键重测报告里的全部数据（主考核、交替、诊断口径、与系统 ping 的对比、故障注入、30 分钟、probe）。与系统 ping 的对比会先测 C 的实际速率，再给 A / B 选 delay 把速率对齐 |
 | `session.sh 名字` | 一次独立的复测会话（重启后 / 另一天用），结果不覆盖正式数据 |
 | `drift.sh 目录 分钟数` | A、B 每 20 秒交替一次的长时间监测 |
-| `versions.sh` | 两个代码版本的 A 与 B 轮流对比 |
+| `versions.sh` | 两个代码版本的 A 与 B 轮流对比（假定 B 不变） |
+| `versions-ab.sh 旧标签 [轮数] [秒数]` | 旧版本与当前代码的同场对比，A 和 B 都比（改动同时涉及 A 和 B 时用） |
 | `day.sh 名字 [旧标签] [轮数] [分钟数]` | 同一次开机里把"旧版本的 A、当前版本的 A、B"放在一条时间轴上：旧版本的主考核 → 三者轮流各 60 秒 × N 轮 → 三者轮流各 20 秒连续监测 → 当前版本的主考核（`DAY_ORDER=rot-first` 时改成一开机就轮流、主考核放最后）。原始记录在 `logs/sessions/<名字>-raw/`，并整理成两个普通会话 `<名字>-<旧标签>`、`<名字>-<当前标签>`；A 的尾部变重时自动补一组 `mfence` 口径 |
 | `build-version.sh 标签` | 把某个历史版本编译到仓库之外，供对比用 |
 | `fault.py` | 故障注入矩阵 |
@@ -590,7 +604,7 @@ payload 是一个 32 位整数：在 A 里是 timer 槽位号，在 B 里是 ses
 | `report.py` | `make_report.py` 调用它生成"主考核"那一节 |
 | `plots.py` | 生成 `docs/img/` 下的图 |
 | `summarize.py` / `summarize_c.py` | 汇总多轮 A / B；汇总 C 的逐包输出 |
-| `check-compliance.sh` | 把题目的硬性要求逐条机器核对 |
+| `check-compliance.sh` | 把题目的硬性要求逐条机器核对；一律以命令的退出码为准；`--self-test` 检查检查器自己 |
 
 **数据是怎么流到报告里的**
 
@@ -609,25 +623,29 @@ async-ping / raw-ping ──(--json)──▶ logs/…/*.json ─┐
 ## 第 8 章 日志与数据的目录结构
 
 ```text
-logs/
-  final/        当前版本的主考核（A-600、B-600）、置信区间 ci.json、辅助对比
-  ab-<时间>/    A / B 交替的各轮
-  diag/         诊断口径：T0 前 sfence / mfence / N 次写入
-  fault/<时间>/ 故障注入：每个场景的日志、JSON、汇总
-  soak/         30 分钟连续运行
-  probe/        probe 构建的诊断
-  sessions/     重启后 / 另一天的复测会话（`day2-raw` 是第二天三者轮流跑的原始记录，`day2-v1`、`day2-v2` 是由它整理出的两个会话）
-  versions/     不同代码版本的轮流对比
-  exp/          先在正式代码之外做的实验（补丁 + 结果）：`sleep-unchecked` 后来并入成了 v2，`samples-slow` 后来并入成了 v3
-  v1/           上一个代码版本（标签 v1）的全部数据，结构同上
-  C-*/          系统 ping 的汇总
-  history/      更早的运行
-  setup/        搭环境的日志
-  tmp/          临时文件、原始样本（不进仓库）
+logs/                                  仓库里只有当前版本（v4）最新的一套
+  final/            主考核（A-600、B-600：各 10 分钟）、置信区间 ci.json、meta.json；与系统 ping 对比用的 A-vsC、B-vsC、A-1flow
+  ab-<时间>/        A / B 交替 10 对
+  diag/             诊断口径：T0 前 sfence / mfence / N 次写入
+  c/                系统 ping（C）：user / kernel 两种口径 × 64 路 / 单路，各一个 C.json + summary.txt
+  fault/<时间>/     故障注入：每个场景的日志、JSON、汇总
+  soak/             30 分钟连续运行
+  probe/            probe 构建的诊断
+  versions-ab/      上一个版本与当前版本的同场对比（v3-vs-v4）
+  r1-bisect/        v4 第一版为什么让慢发送变多：五个版本同场轮流 + 两个补丁 + 说明
+  setup/            搭环境的日志
+  tmp/              临时文件、原始样本、C 的逐包输出压缩包（不进仓库）
 docs/
-  REPORT.md     延迟报告            DEFENSE.md   答辩提纲
-  WORKLOG.md    工作记录的副本       CODE_GUIDE.md 本文的副本
-  img/          图                  v1/          上一个版本的报告和图（冻结）
+  REPORT.md         延迟报告（由 logs/ 生成）   HISTORY.md   v1 ~ v3 的测量与结论（冻结的历史摘要）
+  REVIEW.md         外部代码审查六条意见的处理表   DEFENSE.md   答辩提纲
+  WORKLOG.md        工作记录的副本               CODE_GUIDE.md 本文的副本
+  img/              报告用的图                  img/history/ 历史摘要用的图
+
+~/bq-archive/                          考察机本地，不在仓库里：v1 ~ v3 的全部日志和当时的报告
+  logs-v1-v3/       原来仓库里的 logs/v1、logs/v2、logs/sessions、logs/versions、logs/exp、logs/history
+  docs-before-v4/   v3 时的 README、报告、答辩提纲和图        docs-v1/、docs-v2/  更早两版冻结的报告
+  scripts-before-v4/ 当时的报告 / 出图脚本（含会话表、时间轴等历史章节的生成代码）和 session.sh / day.sh 等
+  v3-campaign-stopped-20261002/  被云平台事件打断的那次 v3 重测      v4-first-attempt/  v4 第一版的同场对比与二分的全部数据
 ```
 
 每个 JSON 都带 `env` 字段，其中 `git_commit` 是构建那个二进制时的提交号；一组数据旁边的 `meta.json` 记着它属于哪次开机、哪个代码版本。

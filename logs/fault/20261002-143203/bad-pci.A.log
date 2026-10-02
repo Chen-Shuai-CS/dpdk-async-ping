@@ -1,0 +1,2 @@
+EAL: No free 1048576 kB hugepages reported on node 0
+初始化失败：找不到 DPDK 端口（网卡是否已 bind？） 失败: No such device (errno 19)
