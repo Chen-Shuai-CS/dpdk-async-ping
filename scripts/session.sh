@@ -32,8 +32,16 @@ if [[ -n "$ver" ]]; then
     BQ_BIN_DIR=$(scripts/build-version.sh "$ver"); export BQ_BIN_DIR
     scripts/write_meta.py "$out/meta.json" "$name" --version "$ver" --commit "$(git rev-parse --short=12 "$ver^{commit}")"
 else
+    # 整个会话自始至终用同一份二进制文件：在这里编译一次，之后的 run.sh 不再调用 cargo。
+    # 原因见 REPORT §3.5：v4-reboot2 会话里，cargo 在主考核之后把内容完全相同的二进制又写了一遍，
+    # 此后 A 的段①整体慢了约 5 ns，直到这个文件再次被重写才恢复。
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+    cargo build --release -q --bin async-ping --bin raw-ping
+    BQ_BIN_DIR="$REPO_ROOT/target/release"; export BQ_BIN_DIR
     scripts/write_meta.py "$out/meta.json" "$name"
 fi
+(cd "$BQ_BIN_DIR" && md5sum async-ping raw-ping && stat -c '%n 写入于 %y' async-ping raw-ping) > "$out/binaries.txt"
 
 run() {
     local c=$1 o=$2; shift 2

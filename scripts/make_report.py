@@ -446,7 +446,25 @@ def section_sessions(a):
         off = A["port"]["opackets"] - A["counters"]["sent"] - A["counters"]["arp_replies"]
         tax.append(f"| {meta['name']} | {t['path']:+.1f} | {t['queue']:+.1f} | {t['send']:+.1f} | **{t['total']:+.1f}** "
                    f"| {A['seg1_slow_percent']:.2f}% / {B['seg1_slow_percent']:.2f}% | {ea['p50'] / 1000:.0f} / {eb['p50'] / 1000:.0f} | {ea['min'] / 1000:.1f} / {eb['min'] / 1000:.1f} | {off:,} |")
-    return "\n".join(head + rows) + note + "\n" + "\n".join(tax)
+    seg = ["\n各会话交替 10 对的逐对差值按三段拆开（各段平均值的 A − B，ns，括号里是 95% 区间；最后两列是 A、B 各自段①平均值在 10 次运行里的中位数）：\n",
+           "| 会话 | 段① | 段② | 段③ | A 的段①平均 | B 的段①平均 |", "|---|---|---|---|---|---|"]
+    for meta, _, _, _, abd in entries:
+        runs = {}
+        for p in sorted(glob.glob(os.path.join(ROOT, abd, "[AB]-*.json"))):
+            with open(p) as f:
+                r = json.load(f)
+            runs[(r["client"][0], int(os.path.basename(p).split("-")[1].split(".")[0]))] = r
+        idx = sorted(i for c_, i in runs if c_ == "A" and ("B", i) in runs)
+        if not idx:
+            continue
+        cells = [meta["name"]]
+        for n in ("seg①", "seg②", "seg③"):
+            m, lo, hi = mean_ci([metric(runs[("A", i)], n)["mean"] - metric(runs[("B", i)], n)["mean"] for i in idx])
+            cells.append(f"**{m:+.1f}** [{lo:+.1f}, {hi:+.1f}]")
+        for c_ in "AB":
+            cells.append(f"{statistics.median(metric(runs[(c_, i)], 'seg①')['mean'] for i in idx):.1f}")
+        seg.append("| " + " | ".join(cells) + " |")
+    return "\n".join(head + rows) + note + "\n" + "\n".join(tax) + "\n" + "\n".join(seg)
 
 
 def session_runs(rel):

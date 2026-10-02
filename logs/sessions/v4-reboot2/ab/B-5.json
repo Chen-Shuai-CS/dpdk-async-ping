@@ -1,0 +1,419 @@
+{
+  "client": "B · raw-ping（手写 busy-poll，无 runtime）",
+  "sessions": 64,
+  "delay_us": 500,
+  "duration_sec": 60,
+  "payload": 64,
+  "timeout_us": 10000,
+  "elapsed_sec": 60.001600679,
+  "tsc_hz": 2600000000,
+  "counters": {
+    "sent": 6829644,
+    "received": 6829644,
+    "timeouts": 0,
+    "late": 0,
+    "unexpected": 0,
+    "foreign": 0,
+    "tsc_mismatch": 0,
+    "record_mismatch": 0,
+    "other_rx": 0,
+    "arp_replies": 1,
+    "tx_full": 0,
+    "no_mbuf": 0,
+    "in_flight_at_end": 0,
+    "rx_bursts": 6030674,
+    "rx_pkts": 6829645
+  },
+  "metrics": [
+    {
+      "name": "in-process ①+②  [排名指标]",
+      "count": 6829644,
+      "min": 50,
+      "mean": 177.22981314985086,
+      "p50": 160,
+      "p90": 220,
+      "p99": 420,
+      "p99_9": 530,
+      "p99_99": 629,
+      "max": 34120,
+      "p50_interp": 163.8,
+      "p90_interp": 217.7,
+      "p99_interp": 421.3,
+      "p99_9_interp": 525.0,
+      "p99_99_interp": 630.8
+    },
+    {
+      "name": "seg① send  T1−T0",
+      "count": 6829644,
+      "min": 40,
+      "mean": 59.229115016829574,
+      "p50": 50,
+      "p90": 60,
+      "p99": 300,
+      "p99_9": 320,
+      "p99_99": 429,
+      "max": 33990,
+      "p50_interp": 51.9,
+      "p90_interp": 63.9,
+      "p99_interp": 304.7,
+      "p99_9_interp": 322.8,
+      "p99_99_interp": 426.6
+    },
+    {
+      "name": "seg② recv  T3−T2",
+      "count": 6829644,
+      "min": 10,
+      "mean": 118.00069813302129,
+      "p50": 110,
+      "p90": 150,
+      "p99": 250,
+      "p99_9": 310,
+      "p99_99": 420,
+      "max": 15740,
+      "p50_interp": 110.6,
+      "p90_interp": 153.1,
+      "p99_interp": 251.0,
+      "p99_9_interp": 314.5,
+      "p99_99_interp": 418.2
+    },
+    {
+      "name": "end-to-end T3−T0",
+      "count": 6829644,
+      "min": 23880,
+      "mean": 62151.92012643704,
+      "p50": 52972,
+      "p90": 60061,
+      "p99": 162658,
+      "p99_9": 233944,
+      "p99_99": 246547,
+      "max": 307440,
+      "p50_interp": 53047.5,
+      "p90_interp": 60079.8,
+      "p99_interp": 162995.7,
+      "p99_9_interp": 234180.5,
+      "p99_99_interp": 246836.1
+    },
+    {
+      "name": "seg③ wake→next T0",
+      "count": 6829644,
+      "min": 30,
+      "mean": 77.67993031554794,
+      "p50": 50,
+      "p90": 290,
+      "p99": 380,
+      "p99_9": 469,
+      "p99_99": 858,
+      "max": 8310,
+      "p50_interp": 49.8,
+      "p90_interp": 285.3,
+      "p99_interp": 383.0,
+      "p99_9_interp": 470.0,
+      "p99_99_interp": 855.8
+    },
+    {
+      "name": "sleep error",
+      "count": 6829644,
+      "min": 0,
+      "mean": 25.15509244022765,
+      "p50": 10,
+      "p90": 100,
+      "p99": 230,
+      "p99_9": 540,
+      "p99_99": 2984,
+      "max": 50990,
+      "p50_interp": 7.7,
+      "p90_interp": 101.7,
+      "p99_interp": 234.2,
+      "p99_9_interp": 535.5,
+      "p99_99_interp": 2979.8
+    },
+    {
+      "name": "deadline→next T0 (误差+③)",
+      "count": 6829644,
+      "min": 30,
+      "mean": 102.83502275577558,
+      "p50": 60,
+      "p90": 350,
+      "p99": 490,
+      "p99_9": 840,
+      "p99_99": 3212,
+      "max": 51060,
+      "p50_interp": 57.1,
+      "p90_interp": 347.3,
+      "p99_interp": 486.0,
+      "p99_9_interp": 835.2,
+      "p99_99_interp": 3208.2
+    },
+    {
+      "name": "  (诊断) seg① 距上次发送<100ns",
+      "count": 157490,
+      "min": 140,
+      "mean": 304.25519080576544,
+      "p50": 300,
+      "p90": 320,
+      "p99": 401,
+      "p99_9": 441,
+      "p99_99": 920,
+      "max": 33990,
+      "p50_interp": 302.8,
+      "p90_interp": 315.3,
+      "p99_interp": 399.6,
+      "p99_9_interp": 442.9,
+      "p99_99_interp": 917.5
+    },
+    {
+      "name": "  (诊断) seg① 100–250ns",
+      "count": 375,
+      "min": 50,
+      "mean": 201.44,
+      "p50": 200,
+      "p90": 230,
+      "p99": 450,
+      "p99_9": 540,
+      "p99_99": 540,
+      "max": 540,
+      "p50_interp": 198.4,
+      "p90_interp": 232.9,
+      "p99_interp": 447.5,
+      "p99_9_interp": 541.3,
+      "p99_99_interp": 544.6
+    },
+    {
+      "name": "  (诊断) seg① 250–500ns",
+      "count": 910988,
+      "min": 40,
+      "mean": 53.4172678454601,
+      "p50": 50,
+      "p90": 60,
+      "p99": 70,
+      "p99_9": 170,
+      "p99_99": 280,
+      "max": 4580,
+      "p50_interp": 51.6,
+      "p90_interp": 62.5,
+      "p99_interp": 74.2,
+      "p99_9_interp": 169.5,
+      "p99_99_interp": 277.8
+    },
+    {
+      "name": "  (诊断) seg① 500ns–2µs",
+      "count": 3207334,
+      "min": 40,
+      "mean": 53.26213297399024,
+      "p50": 50,
+      "p90": 60,
+      "p99": 70,
+      "p99_9": 160,
+      "p99_99": 250,
+      "max": 4720,
+      "p50_interp": 51.6,
+      "p90_interp": 62.6,
+      "p99_interp": 74.0,
+      "p99_9_interp": 163.4,
+      "p99_99_interp": 247.4
+    },
+    {
+      "name": "  (诊断) seg① ≥2µs",
+      "count": 2553457,
+      "min": 40,
+      "mean": 53.66416587395049,
+      "p50": 50,
+      "p90": 60,
+      "p99": 70,
+      "p99_9": 160,
+      "p99_99": 250,
+      "max": 5110,
+      "p50_interp": 51.9,
+      "p90_interp": 63.2,
+      "p99_interp": 74.4,
+      "p99_9_interp": 162.7,
+      "p99_99_interp": 250.1
+    },
+    {
+      "name": "  (诊断) 维护: rte_timer_manage",
+      "count": 599891,
+      "min": 20,
+      "mean": 25.155353222502086,
+      "p50": 20,
+      "p90": 30,
+      "p99": 40,
+      "p99_9": 40,
+      "p99_99": 1252,
+      "max": 3750,
+      "p50_interp": 24.7,
+      "p90_interp": 33.1,
+      "p99_interp": 35.2,
+      "p99_9_interp": 44.2,
+      "p99_99_interp": 1245.1
+    },
+    {
+      "name": "  (诊断) 维护: 整个节拍",
+      "count": 599891,
+      "min": 40,
+      "mean": 381.06379325577484,
+      "p50": 360,
+      "p90": 580,
+      "p99": 749,
+      "p99_9": 920,
+      "p99_99": 2824,
+      "max": 28630,
+      "p50_interp": 358.8,
+      "p90_interp": 583.1,
+      "p99_interp": 748.9,
+      "p99_9_interp": 922.9,
+      "p99_99_interp": 2818.6
+    }
+  ],
+  "burst_sizes": [
+    [
+      1,
+      5310790
+    ],
+    [
+      2,
+      645567
+    ],
+    [
+      3,
+      69706
+    ],
+    [
+      4,
+      4530
+    ],
+    [
+      5,
+      48
+    ],
+    [
+      6,
+      18
+    ],
+    [
+      7,
+      5
+    ],
+    [
+      8,
+      3
+    ],
+    [
+      9,
+      2
+    ],
+    [
+      10,
+      2
+    ],
+    [
+      12,
+      2
+    ],
+    [
+      14,
+      1
+    ]
+  ],
+  "port": {
+    "ipackets": 6829645,
+    "opackets": 6829695,
+    "imissed": 0,
+    "ierrors": 0,
+    "oerrors": 0,
+    "rx_nombuf": 0,
+    "allowance_exceeded": [
+      [
+        "bw_in_allowance_exceeded",
+        0
+      ],
+      [
+        "bw_out_allowance_exceeded",
+        0
+      ],
+      [
+        "pps_allowance_exceeded",
+        0
+      ],
+      [
+        "conntrack_allowance_exceeded",
+        0
+      ],
+      [
+        "linklocal_allowance_exceeded",
+        0
+      ]
+    ]
+  },
+  "mbuf": {
+    "pool_size": 8191,
+    "avail_initial": 8191,
+    "avail_after_start": 7168,
+    "avail_final": 8191,
+    "in_use_final": 0
+  },
+  "exit_reason": "到达 --duration-sec，停止发送并等在途请求收尾",
+  "anomalies": [],
+  "probe_notes": [],
+  "stalls": {
+    "threshold_ns": 1000,
+    "count": 12138,
+    "total_ns": 35521680,
+    "max_ns": 51020,
+    "rx_threshold_ns": 10000,
+    "rx_count": 18,
+    "rx_total_ns": 306870,
+    "rx_max_ns": 52140
+  },
+  "seg1_slow_percent": 2.58849509579123,
+  "diag": [],
+  "samples": null,
+  "env": {
+    "git_commit": "556a373584b8",
+    "git_dirty": false,
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "profile": "release",
+    "features": [],
+    "dpdk": "25.11.3",
+    "kernel": "6.18.48-107.148.amzn2023.x86_64",
+    "kernel_cmdline": "BOOT_IMAGE=(hd0,gpt1)/boot/vmlinuz-6.18.48-107.148.amzn2023.x86_64 root=UUID=53e8e4c5-7263-4b35-8691-edf05a740452 ro console=tty0 console=ttyS0,115200n8 nvme_core.io_timeout=4294967295 rd.emergency=poweroff rd.shell=0 selinux=1 security=selinux quiet default_hugepagesz=2M hugepagesz=2M hugepages=1024 isolcpus=managed_irq,domain,3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2 rcu_nocb_poll nosoftlockup nmi_watchdog=0 tsc=reliable",
+    "cpu_model": "AMD EPYC 9R45",
+    "tsc_flags": [
+      "rdtscp",
+      "constant_tsc",
+      "nonstop_tsc",
+      "tsc_known_freq"
+    ],
+    "clocksource": "tsc",
+    "nic_pci": "0000:28:00.0",
+    "nic_driver": "igb_uio",
+    "nic_write_combining": true,
+    "argv": [
+      "/home/ec2-user/dpdk-async-ping/target/release/raw-ping",
+      "--pci",
+      "0000:28:00.0",
+      "--src-ip",
+      "10.202.15.133",
+      "--dst-ip",
+      "10.202.8.15",
+      "--dst-mac",
+      "06:ff:fd:b6:f0:cd",
+      "--lcore",
+      "3",
+      "--delay-us",
+      "500",
+      "--duration-sec",
+      "60",
+      "--progress-sec",
+      "0",
+      "--json",
+      "logs/sessions/v4-reboot2/ab/B-5.json"
+    ],
+    "started_unix": 1790961149,
+    "clock_read_mean_ns": 17.6251,
+    "clock_read_min_ns": 10.0,
+    "clock_read_median_ns": 20.0,
+    "tsc_step_cycles": 26,
+    "tsc_step_ns": 10.0,
+    "tsc_vs_monotonic_ppm": 0.058947057782382066
+  }
+}

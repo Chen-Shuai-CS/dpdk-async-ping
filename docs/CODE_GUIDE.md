@@ -586,7 +586,7 @@ A 和 B 的判定来自同一个函数 `pingkit::matching::judge`（`matching.rs
 |---|---|
 | `ab.sh N 秒数` | A、B 交替 N 对 |
 | `campaign.sh [阶段…]` | 一键重测报告里的全部数据（主考核、交替、诊断口径、与系统 ping 的对比、故障注入、30 分钟、probe）。与系统 ping 的对比会先测 C 的实际速率，再给 A / B 选 delay 把速率对齐 |
-| `session.sh 名字` | 一次独立的复测会话（重启后 / 另一天用），结果不覆盖正式数据 |
+| `session.sh 名字 [分钟数]` | 一次独立的复测会话（重启后 / 另一天用）：主考核一对 → 交替 10 对 → 调 `drift.sh` 连续监测（默认 60 分钟）。结果在 `logs/sessions/<名字>/`，不覆盖正式数据。开始时编译一次，之后整个会话用同一个二进制文件（md5 与写入时间记在 `binaries.txt`）——原因见报告 §3.5 |
 | `drift.sh 目录 分钟数` | A、B 每 20 秒交替一次的长时间监测 |
 | `versions.sh` | 两个代码版本的 A 与 B 轮流对比（假定 B 不变） |
 | `versions-ab.sh 旧标签 [轮数] [秒数]` | 旧版本与当前代码的同场对比，A 和 B 都比（改动同时涉及 A 和 B 时用） |
@@ -630,6 +630,7 @@ logs/                                  仓库里只有当前版本（v4）最新
   c/                系统 ping（C）：user / kernel 两种口径 × 64 路 / 单路，各一个 C.json + summary.txt
   fault/<时间>/     故障注入：每个场景的日志、JSON、汇总
   soak/             30 分钟连续运行
+  sessions/         重启之后的复测会话（v4-reboot1、v4-reboot2；各有 A-600 / B-600、ci.json、ab/、drift/）；v4-reboot2/placement/ 是"文件实例"的追查实验，otherlog/ 是"无关帧"内容的诊断记录
   probe/            probe 构建的诊断
   versions-ab/      上一个版本与当前版本的同场对比（v3-vs-v4）
   r1-bisect/        v4 第一版为什么让慢发送变多：五个版本同场轮流 + 两个补丁 + 说明
