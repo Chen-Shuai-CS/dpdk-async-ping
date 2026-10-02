@@ -44,6 +44,16 @@ pub fn mfence() {
     unsafe { core::arch::x86_64::_mm_mfence() }
 }
 
+/// 提前把 `p` 所在的缓存行以"可写"状态取进缓存（`prefetchw`）。只是一个提示：不读写内存，地址无效也不会出错。
+///
+/// 用在"过一会儿才会写到、但写的时候不能等"的地方（`pingkit::samples`）：一次要等内存的写入会挂在 CPU 的写入队列里，
+/// 拖慢紧随其后的发送（见 README §5.1 第 15 项）。
+#[inline(always)]
+pub fn prefetch_write<T>(p: *const T) {
+    // SAFETY: SSE 是 x86_64 的基线指令集；预取指令不解引用指针，对任何地址（包括越界、未映射的地址）都不会产生异常。
+    unsafe { core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_ET0 }>(p as *const i8) }
+}
+
 /// "读一次时钟"的标定结果，单位 TSC 周期。
 #[derive(Debug, Clone, Copy)]
 pub struct ClockCost {
