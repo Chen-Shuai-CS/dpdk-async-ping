@@ -27,6 +27,10 @@ pub struct Counters {
     /// `id/seq` 对得上、但回带的发送时间戳 ≠ 我们发这个请求时写入的 T0 的回复（seq 回绕后的旧回复 / 重放 / 损坏）。
     /// 这样的回复**被拒绝**：不计入 received，不完成请求，原请求继续等（见 `matching`）。它是收包对账里单独的一类
     pub tsc_mismatch: u64,
+    /// record 时的二次核对不符：session 自己记下的 T0 与它持有的回复带回的时间戳不一致。
+    /// 接收时已经核对过一次（用 driver 一侧记下的 T0），这里用 session 一侧记下的再核对一次；
+    /// 两处是各自保存的，不一致只可能是程序自身的状态出了问题。**应恒为 0**；不为 0 时这些样本不进入延迟分布
+    pub record_mismatch: u64,
     /// 其他与本程序无关的帧（非 IPv4/ARP、不是给我的……）
     pub other_rx: u64,
     /// 回答过的 ARP request
@@ -162,6 +166,27 @@ impl Stats {
         self.sleep_err.record(detected.saturating_sub(deadline));
         self.seg3.record(t0_next.saturating_sub(detected));
         self.wake_total.record(t0_next.saturating_sub(deadline));
+    }
+
+    /// record 时的二次核对：session 自己记下的 T0 必须等于它持有的回复带回的时间戳。见 [`Counters::record_mismatch`]。
+    /// 返回 false 表示对不上：调用方**不得**把它计入延迟分布。
+    ///
+    /// 回复的身份在接收时已经由 [`crate::matching::judge`] 核对过，这里是第二道：两处用的 T0 是各自保存的。
+    /// v1 ~ v3 只有这一道（在 sleep 之后），v4 把判定提前到了请求完成之前，这一道保留下来没有删——
+    /// 删掉它不影响正确性，但会改变测量结果：它发生在"上一次发送"与"下一个 T0"之间，少了这次调用，
+    /// 上一次发送留下的那段 CPU 停顿就更多地落进段①（实测 B 的慢发送占比从约 3% 变成约 11%，见 docs/REPORT.md §3.4）。
+    #[inline]
+    #[must_use]
+    pub fn verify_echo(&mut self, s: Stamp, echoed_tsc: u64, id: u16, seq: u16) -> bool {
+        if echoed_tsc == s.t0 {
+            return true;
+        }
+        self.c.record_mismatch += 1;
+        self.note_anomaly(format_args!(
+            "record_mismatch：id={id} seq={seq}，持有的回复带回的 TSC={echoed_tsc}，session 记下的 T0={}；程序内部状态不一致，该样本不进入延迟分布",
+            s.t0
+        ));
+        false
     }
 
     /// 一个 `id/seq` 对得上、回带时间戳对不上的回复被拒绝了（冷路径）：计数并留下明细。
@@ -375,8 +400,11 @@ impl Report {
             c.timeouts, c.late
         );
         let samples = self.metrics.first().map_or(0, |m| m.count);
-        if samples != c.received {
-            println!("样本对账：延迟样本 {samples} ≠ received = {}（提前退出时，尚在 sleep 的 session 手里的回复不会被记录）", c.received);
+        if samples != c.received - c.record_mismatch {
+            println!("样本对账：延迟样本 {samples} ≠ received − record-mismatch = {}（提前退出时，尚在 sleep 的 session 手里的回复不会被记录）", c.received - c.record_mismatch);
+        }
+        if c.record_mismatch != 0 {
+            println!("✘ record 时的二次核对有 {} 次不符：程序内部状态不一致（应恒为 0）", c.record_mismatch);
         }
         // 收到的每个包必须恰好落入一类
         let rx_diff = c.rx_pkts as i64
@@ -576,6 +604,17 @@ mod tests {
         assert_eq!((st.seg1.max(), st.seg2.max(), st.inproc.max()), (130, 338, 468));
         assert_eq!(st.e2e.max(), 199_338);
         assert_eq!(st.samples.as_slice().iter().map(|&v| unpack(v)).collect::<Vec<_>>(), vec![(130, 338, 200_000)]);
+    }
+
+    /// record 时的二次核对：对得上返回 true；对不上单独计数（不是 tsc_mismatch）、留下明细、返回 false。
+    #[test]
+    fn second_check_at_record_time() {
+        let mut st = Stats::default();
+        let s = stamp(1_000, 1_130);
+        assert!(st.verify_echo(s, 1_000, 3, 7));
+        assert!(!st.verify_echo(s, 999, 3, 7));
+        assert_eq!((st.c.record_mismatch, st.c.tsc_mismatch), (1, 0));
+        assert!(st.anomalies[0].contains("record_mismatch") && st.anomalies[0].contains("id=3 seq=7"));
     }
 
     /// 被拒绝的回复：单独计数、留下明细，不动 received。

@@ -125,7 +125,7 @@ for t in A B; do
     check "$t：零 mbuf 泄漏" json "$f" 'm["avail_initial"] == m["avail_final"]'
     check "$t：零丢包（0 超时）" json "$f" 'c["timeouts"] == 0'
     check "$t：请求对账与收包对账都为 0" json "$f" 'c["sent"] - c["received"] - c["timeouts"] - c["in_flight_at_end"] == 0 and c["rx_pkts"] - (c["received"] + c["late"] + c["unexpected"] + c["foreign"] + c["tsc_mismatch"] + c["other_rx"] + c["arp_replies"]) == 0'
-    check "$t：样本数 = received，且没有被拒绝的回复（时间戳核对不符）" json "$f" 'ip["count"] == c["received"] and c["tsc_mismatch"] == 0'
+    check "$t：样本数 = received；没有被拒绝的回复（时间戳不符），record 时的二次核对全部通过" json "$f" 'ip["count"] == c["received"] and c["tsc_mismatch"] == 0 and c["record_mismatch"] == 0'
     check "$t：AWS 限额计数、网卡丢弃计数全为 0" json "$f" 'all(v == 0 for _, v in r["port"]["allowance_exceeded"]) and r["port"]["imissed"] == 0 and r["port"]["ierrors"] == 0 and r["port"]["rx_nombuf"] == 0'
     check "$t：是排名口径的运行（没有开任何诊断开关），且由干净的源码树构建" json "$f" 'r["diag"] == [] and not r["env"]["git_dirty"]'
 done

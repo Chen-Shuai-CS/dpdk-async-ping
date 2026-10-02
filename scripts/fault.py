@@ -220,7 +220,7 @@ def run_case(case, client, nic, outdir):
         checks.append(("收包对账 = 0",
                        c["rx_pkts"] - (c["received"] + c["late"] + c["unexpected"] + c["foreign"] + c["tsc_mismatch"] + c["other_rx"] + c["arp_replies"]) == 0))
         samples = next(x["count"] for x in r["metrics"] if x["name"].startswith("in-process"))
-        checks.append(("样本数 = received", samples == c["received"]))
+        checks.append(("样本数 = received，且 record 时的二次核对全部通过", samples == c["received"] and c["record_mismatch"] == 0))
         ok, detail = case.expect(r, extra)
         checks.append(("场景预期", ok))
         extra["exit_reason"] = r["exit_reason"]
@@ -261,7 +261,7 @@ def main():
         lines.append(f"| `{r['case']}` | {r['what']} | {r['client']} | {verdict} | {r['detail']} |")
     passed = sum(r["ok"] for r in results)
     lines.append(f"\n共 {len(results)} 项，通过 {passed} 项。每一项都核对：没有崩溃、退出码符合预期、mbuf 零泄漏、请求对账 = 0、收包对账 = 0、"
-                 "样本数 = received，以及该场景特有的预期。")
+                 "样本数 = received（record 时的二次核对全部通过），以及该场景特有的预期。")
     with open(os.path.join(outdir, "summary.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
     print(f"\n{passed}/{len(results)} 通过 → {outdir}/summary.md")

@@ -72,10 +72,15 @@ async fn wait_reply(sh: &Shared, id: u16, seq: u16) -> Result<Reply, Timeout> {
 }
 
 /// sleep 之后才记录样本，并在这里释放 reply 的 mbuf（`reply` 在本函数结束时 Drop）。
-fn record(sh: &Shared, stamp: Stamp, reply: Result<Reply, Timeout>, t3: u64) {
+fn record(sh: &Shared, id: u16, seq: u16, stamp: Stamp, reply: Result<Reply, Timeout>, t3: u64) {
     if let Ok(reply) = reply {
-        // 这个 reply 的身份（id / seq / 回带的时间戳）在 driver 接收它的时候已经核对过，见 `Flow::accept`
-        sh.stats.borrow_mut().on_reply(stamp, reply.t2, t3);
+        // 这个 reply 的身份在 driver 接收它的时候已经核对过（`Flow::accept`，用 driver 一侧记下的 T0）。
+        // 这里用 session 自己记下的 T0 再核对一次：两处各自保存，不一致说明程序自身的状态出了问题。
+        // 这一道不能随手删：见 `Stats::verify_echo` 的说明
+        let mut st = sh.stats.borrow_mut();
+        if st.verify_echo(stamp, reply.tx_tsc, id, seq) {
+            st.on_reply(stamp, reply.t2, t3);
+        }
     } // Err(Timeout)：已由 driver 计为丢失，不进入延迟分布
 }
 
@@ -111,7 +116,7 @@ async fn session(sh: Rc<Shared>, id: u16, first_deadline: u64) {
         }
 
         woke = sleep_until(t3 + sh.delay).await; // 期间 `reply`（及其 mbuf）一直被本 task 持有
-        record(&sh, stamp, reply, t3);
+        record(&sh, id, seq, stamp, reply, t3);
         seq = seq.wrapping_add(1);
     }
 }

@@ -16,6 +16,9 @@ pub struct Reply {
     #[allow(dead_code)]
     pub mbuf: Mbuf,
     pub t2: u64,
+    /// 回复里带回的、我们发送时写入的 TSC。driver 接收它时已经用自己记下的 T0 核对过；
+    /// session 在 record 时用它自己记下的 T0 再核对一次（两处各自保存，互为校验）
+    pub tx_tsc: u64,
 }
 
 /// `wait_reply` 超时。
@@ -177,7 +180,7 @@ impl rt::Driver for IcmpDriver<'_> {
                 };
                 match f.accept(seq, tx_tsc) {
                     Verdict::Accept => {
-                        if f.mailbox.put(Ok(Reply { mbuf: m, t2 })).is_err() {
+                        if f.mailbox.put(Ok(Reply { mbuf: m, t2, tx_tsc })).is_err() {
                             sh.stats.borrow_mut().c.unexpected += 1; // 不应发生：信箱里已有未取走的东西
                         }
                         #[cfg(feature = "probe")]

@@ -342,280 +342,6 @@ def section_diag(a):
     return "\n".join(out)
 
 
-def session_row(meta, pa, pb, ci_path, ab_dir):
-    """一个会话一行：主考核口径的 A − B（单次运行，带区间）+ 交替多对的逐对差值。"""
-    A, B = load(pa), load(pb)
-    c = load(ci_path)["metrics"]["inproc"]["diff"]
-    tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
-    lost = A["counters"]["timeouts"] + B["counters"]["timeouts"]
-    leak = sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for r in (A, B))
-    cells = [f"**{meta['name']}**", meta["boot_time"], meta["started"][:16],
-             f"{metric(A, 'in-process')['p50_interp']:.1f} / {metric(B, 'in-process')['p50_interp']:.1f}",
-             f"**{c['p50']['interp']:+.1f}** {ci_str(c['p50']['interp_ci'])}", f"**{c['p99']['interp']:+.1f}** {ci_str(c['p99']['interp_ci'])}",
-             f"**{tot(A) - tot(B):+.1f}**"]
-    runs = {}
-    for p in sorted(glob.glob(os.path.join(ROOT, ab_dir, "[AB]-*.json"))):
-        with open(p) as f:
-            r = json.load(f)
-        runs[(r["client"][0], int(os.path.basename(p).split("-")[1].split(".")[0]))] = r
-    idx = sorted(i for c_, i in runs if c_ == "A" and ("B", i) in runs)
-    if idx:
-        d = lambda fn: [fn(runs[("A", i)]) - fn(runs[("B", i)]) for i in idx]
-        for fn in (lambda r: metric(r, "in-process")["p50_interp"], lambda r: metric(r, "in-process")["p99_interp"], tot):
-            m, lo, hi = mean_ci(d(fn))
-            cells.append(f"**{m:+.1f}** [{lo:+.1f}, {hi:+.1f}]")
-        lost += sum(r["counters"]["timeouts"] for r in runs.values())
-        leak += sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for r in runs.values())
-        cells.append(f"{len(idx)} 对")
-    else:
-        cells += ["—", "—", "—", "—"]
-    cells.append(f"{lost} / {leak}")
-    return "| " + " | ".join(cells) + " |"
-
-
-SESSION_ROOTS = ("logs/v1/sessions", "logs/sessions")   # 各版本的复测会话
-
-
-def all_sessions():
-    """[(meta, 相对路径)]，按测量开始时间排序。"""
-    out = []
-    for root in SESSION_ROOTS:
-        for d in glob.glob(os.path.join(ROOT, root, "*/")):
-            rel = os.path.relpath(d, ROOT)
-            if os.path.exists(os.path.join(d, "meta.json")):
-                out.append((load(rel + "/meta.json"), rel))
-    return sorted(out, key=lambda x: x[0]["started"])
-
-
-def section_sessions(a):
-    """不同代码版本、不同开机、不同日期的会话对比。"""
-    entries = session_entries(a)
-    if len(entries) < 2:
-        return "（只有一个会话；重启后运行 scripts/session.sh <名字>）"
-    head = ["| 会话 | 代码版本 | 这次开机的时间 | 测量开始（UTC） | 进程内 p50：A / B | 主考核 A − B：p50 [95% 区间] | p99 [95% 区间] | 每请求总账 "
-            "| 交替多对的逐对差值：p50 | p99 | 每请求总账 | 对数 | 丢包 / 泄漏（全部轮次合计） |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    rows = []
-    for meta, pa, pb, cip, abd in entries:
-        row = session_row(meta, pa, pb, cip, abd)
-        rows.append(row.replace("** | ", f"** | {meta.get('version', '?')} | ", 1))
-    boots = len({e[0]["boot_id"] for e in entries})
-    vers = sorted({e[0].get("version", "?") for e in entries})
-    note = (f"\n共 {len(rows)} 个会话，分属 {boots} 次不同的开机（由内核的 boot_id 区分），代码版本 {' / '.join(vers)}"
-            "（v2 = v1 + `Sleep` 第一次被 poll 时不再读时钟，§5.1；v3 = v2 + 导出样本时预取下一条缓存行，只在开 `--samples` 时执行，§3.5）。")
-    # 每个会话的主考核那一对，把每请求的 A − B 拆成三项；再按版本看这些会话之间差多少
-    parts = [(meta, tax_parts(pa, pb, cip)) for meta, pa, pb, cip, _ in entries]
-    tax = ["\n各会话主考核那一对的抽象税拆分（每请求的 A − B，ns；三项的含义见 §5）：\n",
-           "| 会话 | 代码版本 | ① 接收路径本身 | ② 批内排队 | ③ 发送侧调度 | 每请求总账 | 进程内 p50 的 A − B | 进程内 p99 的 A − B |", "|---|---|---|---|---|---|---|---|"]
-    for meta, t in parts:
-        tax.append(f"| {meta['name']} | {meta.get('version', '?')} | {t['path']:+.1f} | {t['queue']:+.1f} | {t['send']:+.1f} | **{t['total']:+.1f}** "
-                   f"| {t['p50']:+.1f} | {t['p99']:+.1f} |")
-    spread = ["\n同一个版本的各个会话之间差多少（最小 ~ 最大；括号里是平均值）：\n", "| 代码版本 | 会话数 | ① 接收路径本身 | ② 批内排队 | ③ 发送侧调度 | 每请求总账 | 进程内 p50 的 A − B |", "|---|---|---|---|---|---|---|"]
-    for v in vers:
-        ts = [t for meta, t in parts if meta.get("version", "?") == v]
-        rng = lambda k: (f"{min(t[k] for t in ts):+.1f} ~ {max(t[k] for t in ts):+.1f}（{statistics.mean(t[k] for t in ts):+.1f}）" if len(ts) > 1 else f"{ts[0][k]:+.1f}")
-        spread.append(f"| {v} | {len(ts)} | {rng('path')} | {rng('queue')} | {rng('send')} | {rng('total')} | {rng('p50')} |")
-    return "\n".join(head + rows) + note + "\n" + "\n".join(tax) + "\n" + "\n".join(spread)
-
-
-def session_runs(rel):
-    """一个会话里的所有运行（主考核、交替各轮、漂移监测的各次短测），按开始时间排序。"""
-    paths = [os.path.join(ROOT, rel, f) for f in ("A-600.json", "B-600.json")]
-    paths += glob.glob(os.path.join(ROOT, rel, "ab", "[AB]-*.json")) + glob.glob(os.path.join(ROOT, rel, "drift", "runs", "[AB]-*.json"))
-    runs = []
-    for p in paths:
-        if os.path.exists(p):
-            with open(p) as f:
-                r = json.load(f)
-            if not r.get("diag"):
-                runs.append(r)
-    return sorted(runs, key=lambda r: r["env"]["started_unix"])
-
-
-def section_drift(a):
-    """重启后的会话按"距开机多久"分窗，看 A 的尾部状态怎么随时间变。"""
-    import datetime
-    out = []
-    for meta, rel in all_sessions():
-        runs = session_runs(rel)
-        if len(runs) < 30:
-            continue
-        # 只列出现过"尾部变重"（A 的段② p99 超过 400 ns）的会话；其余会话的时间轴在 `day` 一节和会话表里
-        if not any(r["client"].startswith("A") and metric(r, "seg②")["p99_interp"] > 400 for r in runs):
-            continue
-        boot = datetime.datetime.strptime(meta["boot_time"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
-        tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
-        med = statistics.median
-        out += [f"会话 `{meta['name']}`（代码版本 {meta.get('version', '?')}，开机时间 {meta['boot_time']} UTC）共 {len(runs)} 次运行，按开始时刻距开机多久分窗，每个窗口取各次运行的中位数（ns）：\n",
-                "| 距开机 | 运行次数 A / B | A 段② p99 | B 段② p99 | A 段① ≥ 125 ns 占比 | A 段③ 平均 | 进程内 p50：A − B | 进程内 p99：A − B | 每请求总账：A − B | 丢包 / 泄漏 |",
-                "|---|---|---|---|---|---|---|---|---|---|"]
-        width = 600
-        for w in range(0, int(max(r["env"]["started_unix"] for r in runs) - boot) // width + 1):
-            sel = [r for r in runs if w * width <= r["env"]["started_unix"] - boot < (w + 1) * width]
-            A = [r for r in sel if r["client"].startswith("A")]
-            B = [r for r in sel if r["client"].startswith("B")]
-            if not A or not B:
-                if sel:
-                    r = sel[0]
-                    out.append(f"| {w * 10} ~ {w * 10 + 10} 分钟 | {len(A)} / {len(B)} | " + (f"{metric(r, 'seg②')['p99_interp']:.0f}" if A else "—") + " | "
-                               + (f"{metric(r, 'seg②')['p99_interp']:.0f}" if B else "—") + f" | " + (f"{r['seg1_slow_percent']:.2f}%" if A else "—")
-                               + " | " + (f"{metric(r, 'seg③')['mean']:.0f}" if A else "—") + f" | — | — | — | {r['counters']['timeouts']} / {r['mbuf']['avail_initial'] - r['mbuf']['avail_final']} |")
-                continue
-            m = lambda rs, name, key: med(metric(r, name)[key] for r in rs)
-            lost = sum(r["counters"]["timeouts"] for r in sel)
-            leak = sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for r in sel)
-            out.append(f"| {w * 10} ~ {w * 10 + 10} 分钟 | {len(A)} / {len(B)} | {m(A, 'seg②', 'p99_interp'):.0f} | {m(B, 'seg②', 'p99_interp'):.0f} "
-                       f"| {med(r['seg1_slow_percent'] for r in A):.2f}% | {m(A, 'seg③', 'mean'):.0f} "
-                       f"| {m(A, 'in-process', 'p50_interp') - m(B, 'in-process', 'p50_interp'):+.1f} "
-                       f"| **{m(A, 'in-process', 'p99_interp') - m(B, 'in-process', 'p99_interp'):+.0f}** "
-                       f"| **{med(tot(r) for r in A) - med(tot(r) for r in B):+.1f}** | {lost} / {leak} |")
-        out.append("")
-    return "\n".join(out).rstrip() if out else "（没有足够密的会话数据；运行 scripts/drift.sh）"
-
-
-def raw_runs(raw):
-    """<名字>-raw 里的全部运行：[(标签 A1/A2/B, 阶段 main/rot/drift, 报告)]，按开始时间排序。A1 = 旧版本的 A，A2 = 当前版本的 A。"""
-    name = os.path.basename(raw.rstrip("/"))[: -len("-raw")]
-    out = []
-    for phase in ("rot", "drift"):
-        for p in glob.glob(os.path.join(raw, phase, "*.json")):
-            with open(p) as f:
-                out.append((os.path.basename(p).split("-")[0], phase, json.load(f)))
-    for d in glob.glob(os.path.join(os.path.dirname(raw.rstrip("/")), name + "-v*")):
-        ver = load(os.path.relpath(d, ROOT) + "/meta.json").get("version", "?")
-        tag = "A1" if ver == "v1" else "A2"
-        for side in ("A", "B"):
-            p = os.path.join(d, side + "-600.json")
-            if os.path.exists(p):
-                with open(p) as f:
-                    out.append((tag if side == "A" else "B", "main", json.load(f)))
-    return sorted(out, key=lambda x: x[2]["env"]["started_unix"])
-
-
-def section_day(a):
-    """同一次开机里两个版本的 A 和 B 轮流跑（scripts/day.sh）。"""
-    import datetime
-    out = []
-    tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
-    for raw in sorted(glob.glob(os.path.join(ROOT, "logs/sessions/*-raw/"))):
-        runs = raw_runs(raw)
-        if len(runs) < 20:
-            continue
-        name = os.path.basename(raw.rstrip("/"))[: -len("-raw")]
-        metas = [load(os.path.relpath(d, ROOT) + "/meta.json") for d in sorted(glob.glob(os.path.join(os.path.dirname(raw.rstrip("/")), name + "-v*")))]
-        boot_time = metas[0]["boot_time"]
-        boot = datetime.datetime.strptime(boot_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
-        lost = sum(r["counters"]["timeouts"] for _, _, r in runs)
-        leak = sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for _, _, r in runs)
-        out.append(f"**会话 `{name}`**（开机时间 {boot_time} UTC；共 {len(runs)} 次运行，丢包合计 {lost}，泄漏合计 {leak}）。"
-                   "A1 = v1 的 A，A2 = v2 的 A；B 的代码在两个版本里相同。\n")
-        # (1) 轮流的那些轮：逐轮配对
-        rot = {}
-        for tag, phase, r in runs:
-            if phase == "rot":
-                i = int(r["env"]["argv"][r["env"]["argv"].index("--json") + 1].rsplit("-", 1)[1].split(".")[0])
-                rot.setdefault(i, {})[tag] = r
-        idx = sorted(i for i, v in rot.items() if len(v) == 3)
-        if idx:
-            stats = [("进程内 p50", lambda r: metric(r, "in-process")["p50_interp"]), ("进程内 p99", lambda r: metric(r, "in-process")["p99_interp"]),
-                     ("段② 平均", lambda r: metric(r, "seg②")["mean"]), ("段② p99", lambda r: metric(r, "seg②")["p99_interp"]),
-                     ("① + ③ 平均（发送侧）", lambda r: metric(r, "seg①")["mean"] + metric(r, "seg③")["mean"]), ("① + ② + ③ 平均（总账）", tot)]
-            out += [f"三者轮流各 60 秒，共 {len(idx)} 轮（开机后 {(min(rot[i]['B']['env']['started_unix'] for i in idx) - boot) / 60:.0f} ~ "
-                    f"{(max(rot[i]['B']['env']['started_unix'] for i in idx) - boot) / 60:.0f} 分钟）。逐轮配对后的平均值与 95% 区间（ns）：\n",
-                    "| 指标 | v1：A1 − B | v2：A2 − B | **v2 − v1（A2 − A1）** | v2 更低的轮数 |", "|---|---|---|---|---|"]
-            for label, fn in stats:
-                d1 = [fn(rot[i]["A1"]) - fn(rot[i]["B"]) for i in idx]
-                d2 = [fn(rot[i]["A2"]) - fn(rot[i]["B"]) for i in idx]
-                dd = [fn(rot[i]["A2"]) - fn(rot[i]["A1"]) for i in idx]
-                f = lambda xs: "{:+.1f} [{:+.1f}, {:+.1f}]".format(*mean_ci(xs))
-                out.append(f"| {label} | {f(d1)} | {f(d2)} | **{f(dd)}** | {sum(x < 0 for x in dd)} / {len(dd)} |")
-            sl = lambda tag: [rot[i][tag]["seg1_slow_percent"] for i in idx]
-            out.append(f"\n段① ≥ 125 ns 的占比：A1 {min(sl('A1')):.2f}% ~ {max(sl('A1')):.2f}%，A2 {min(sl('A2')):.2f}% ~ {max(sl('A2')):.2f}%，"
-                       f"B {min(sl('B')):.2f}% ~ {max(sl('B')):.2f}%。\n")
-        # (2) 按距开机多久分窗
-        out += ["全部运行按开始时刻距开机多久分窗，每个窗口取各次运行的中位数（ns）：\n",
-                "| 距开机 | 运行次数 A1 / A2 / B | 段② p99：A1 / A2 / B | 段① ≥ 125 ns 占比：A1 / A2 | 进程内 p99 的 A − B：v1 / v2 | 每请求总账的 A − B：v1 / v2 |",
-                "|---|---|---|---|---|---|"]
-        med = statistics.median
-        width = 600
-        last = int(max(r["env"]["started_unix"] for _, _, r in runs) - boot) // width
-        for w in range(last + 1):
-            sel = {t: [r for tag, _, r in runs if tag == t and w * width <= r["env"]["started_unix"] - boot < (w + 1) * width] for t in ("A1", "A2", "B")}
-            if not any(sel.values()):
-                continue
-            m = lambda t, fn: med(fn(r) for r in sel[t]) if sel[t] else None
-            cell = lambda v, fmt="{:.0f}": "—" if v is None else fmt.format(v)
-            s2 = lambda r: metric(r, "seg②")["p99_interp"]
-            ip = lambda r: metric(r, "in-process")["p99_interp"]
-            diff = lambda t, fn: None if (m(t, fn) is None or m("B", fn) is None) else m(t, fn) - m("B", fn)
-            out.append(f"| {w * 10} ~ {w * 10 + 10} 分钟 | {len(sel['A1'])} / {len(sel['A2'])} / {len(sel['B'])} "
-                       f"| {cell(m('A1', s2))} / {cell(m('A2', s2))} / {cell(m('B', s2))} "
-                       f"| {cell(m('A1', lambda r: r['seg1_slow_percent']), '{:.2f}%')} / {cell(m('A2', lambda r: r['seg1_slow_percent']), '{:.2f}%')} "
-                       f"| {cell(diff('A1', ip), '{:+.0f}')} / {cell(diff('A2', ip), '{:+.0f}')} "
-                       f"| {cell(diff('A1', tot), '{:+.1f}')} / {cell(diff('A2', tot), '{:+.1f}')} |")
-        # (3) 自动补测的 mfence 口径
-        mf = sorted(glob.glob(os.path.join(raw, "mfence", "A*.json")))
-        heavy = {t: sum(1 for tag, ph, r in runs if tag == t and ph != "main" and metric(r, "seg②")["p99_interp"] > 400) for t in ("A1", "A2")}
-        out.append(f"\n\"尾部变重\"（段② p99 超过 400 ns）的运行：A1 {heavy['A1']} 次，A2 {heavy['A2']} 次；因此自动补测的 `mfence` 口径共 {len(mf)} 组。")
-        if mf:
-            rows = []
-            for p in mf:
-                pb = os.path.join(os.path.dirname(p), "B-" + os.path.basename(p).split("-", 1)[1])
-                if not os.path.exists(pb):
-                    continue
-                with open(p) as f:
-                    ra = json.load(f)
-                with open(pb) as f:
-                    rb = json.load(f)
-                rows.append((os.path.basename(p).split("-")[0], metric(ra, "in-process")["p50_interp"] - metric(rb, "in-process")["p50_interp"],
-                             metric(ra, "in-process")["p99_interp"] - metric(rb, "in-process")["p99_interp"], metric(ra, "seg②")["p99_interp"], tot(ra) - tot(rb)))
-            for t in ("A1", "A2"):
-                x = [r for r in rows if r[0] == t]
-                if x:
-                    out.append(f"- {t}（{'v1' if t == 'A1' else 'v2'}）在重状态下的 `mfence` 口径，{len(x)} 组的中位数：进程内 p50 的 A − B {med(r[1] for r in x):+.1f}，"
-                               f"p99 的 A − B {med(r[2] for r in x):+.1f}，A 的段② p99 {med(r[3] for r in x):.0f}，每请求总账的 A − B {med(r[4] for r in x):+.1f}。")
-        out.append("")
-    pooled = pooled_rotation()
-    if pooled:
-        out.append(pooled)
-    return "\n".join(out).rstrip() if out else "（没有两个版本同场的会话数据；运行 scripts/day.sh）"
-
-
-def pooled_rotation():
-    """把所有"v1 的 A、v2 的 A、B 同场轮流各 60 秒"的轮次合在一起（不同开机、不同日期），逐轮配对。全部不带样本导出。"""
-    def rd(p):
-        with open(p) as f:
-            return json.load(f)
-    rounds, sources = [], []   # [(A1, A2, B)]
-    for d, a1, a2 in ((os.path.join(ROOT, "logs/exp/sleep-unchecked"), "A", "X"),) + tuple(
-            (d, "A1", "A2") for d in sorted(glob.glob(os.path.join(ROOT, "logs/versions/*/"))) + sorted(glob.glob(os.path.join(ROOT, "logs/sessions/*-raw/rot/")))):
-        n = 0
-        for pb in sorted(glob.glob(os.path.join(d, "B-*.json"))):
-            i = os.path.basename(pb)[2:]
-            p1, p2 = os.path.join(d, f"{a1}-{i}"), os.path.join(d, f"{a2}-{i}")
-            if os.path.exists(p1) and os.path.exists(p2):
-                rounds.append((rd(p1), rd(p2), rd(pb)))
-                n += 1
-        if n:
-            sources.append(n)
-    if len(rounds) < 10:
-        return ""
-    tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
-    stats = [("进程内 p50", lambda r: metric(r, "in-process")["p50_interp"]), ("进程内 p99", lambda r: metric(r, "in-process")["p99_interp"]),
-             ("段② 平均", lambda r: metric(r, "seg②")["mean"]), ("段② p99", lambda r: metric(r, "seg②")["p99_interp"]),
-             ("① + ③ 平均（发送侧）", lambda r: metric(r, "seg①")["mean"] + metric(r, "seg③")["mean"]), ("① + ② + ③ 平均（总账）", tot)]
-    f = lambda xs: "{:+.1f} [{:+.1f}, {:+.1f}]".format(*mean_ci(xs))
-    out = [f"**所有同场轮流的轮次合并**（共 {len(rounds)} 轮 = {' + '.join(str(n) for n in sources)}，各 60 秒，全部不带样本导出；逐轮配对后的平均值与 95% 区间，ns）：\n",
-           "| 指标 | v1：A1 − B | v2：A2 − B | **v2 − v1（A2 − A1）** | v2 更低的轮数 |", "|---|---|---|---|---|"]
-    for label, fn in stats:
-        d1 = [fn(a1) - fn(b) for a1, _, b in rounds]
-        d2 = [fn(a2) - fn(b) for _, a2, b in rounds]
-        dd = [fn(a2) - fn(a1) for a1, a2, _ in rounds]
-        out.append(f"| {label} | {f(d1)} | {f(d2)} | **{f(dd)}** | {sum(x < 0 for x in dd)} / {len(dd)} |")
-    lost = sum(r["counters"]["timeouts"] for rr in rounds for r in rr)
-    out.append(f"\n这 {3 * len(rounds)} 次运行丢包合计 {lost}。")
-    return "\n".join(out)
-
-
 def tax_parts(pa, pb, cip):
     """把每请求的 A − B 拆成三项：接收路径本身 / 批内排队 / 发送侧调度（见 README §1.1）。"""
     A, B, c = load(pa), load(pb), load(cip)
@@ -638,119 +364,100 @@ def tax_parts(pa, pb, cip):
     }
 
 
-def section_versions(a):
-    """代码版本 v1 → v2 的对比。"""
-    out = []
-    cols = [("v1 主考核", "logs/v1/final/A-600.json", "logs/v1/final/B-600.json", "logs/v1/final/ci.json"),
-            ("v2 主考核", "logs/v2/final/A-600.json", "logs/v2/final/B-600.json", "logs/v2/final/ci.json"),
-            ("**v3 主考核**", a.main_a, a.main_b, a.ci),
-            ("v1 · mfence 口径", "logs/v1/diag/A-mfence.json", "logs/v1/diag/B-mfence.json", "logs/v1/diag/ci-mfence.json"),
-            ("v2 · mfence 口径", "logs/v2/diag/A-mfence.json", "logs/v2/diag/B-mfence.json", "logs/v2/diag/ci-mfence.json"),
-            ("**v3 · mfence 口径**", os.path.join(a.diag_dir, "A-mfence.json"), os.path.join(a.diag_dir, "B-mfence.json"), os.path.join(a.diag_dir, "ci-mfence.json"))]
+def section_tax(a):
+    """每请求的 A − B 拆成三项（接收路径本身 / 批内排队 / 发送侧调度），主考核口径与 mfence 口径各一列。"""
+    cols = [("主考核", a.main_a, a.main_b, a.ci),
+            ("`mfence` 口径", os.path.join(a.diag_dir, "A-mfence.json"), os.path.join(a.diag_dir, "B-mfence.json"), os.path.join(a.diag_dir, "ci-mfence.json"))]
     cols = [c for c in cols if all(os.path.exists(os.path.join(ROOT, p)) for p in c[1:])]
-    if len(cols) >= 2:
-        t = [tax_parts(pa, pb, ci) for _, pa, pb, ci in cols]
-        f1 = lambda v: f"{v:+.1f}"
-        tri = lambda v: " / ".join(f"{x:.0f}" for x in v)
-        rows = [("A 的段②：平均 / p50 / p99（ns）", lambda x: f"{x['a_seg2_mean']:.1f} / {x['a_seg2']['p50']:.0f} / {x['a_seg2']['p99']:.0f}"),
-                ("每往后一个位置，段②增加：A", lambda x: tri(x["incr_a"])),
-                ("每往后一个位置，段②增加：B", lambda x: tri(x["incr_b"])),
-                ("**② 批内排队**（A − B，每请求平均）", lambda x: f"**{x['queue']:+.1f}**"),
-                ("① 接收路径本身（A − B）", lambda x: f1(x["path"])),
-                ("③ 发送侧调度（A − B）", lambda x: f1(x["send"])),
-                ("每请求总账（A − B）", lambda x: f"**{x['total']:+.1f}**"),
-                ("段②：平均 / p50 / p99 的 A − B", lambda x: f"{x['seg2']:+.1f} / {x['seg2_p50']:+.1f} / {x['seg2_p99']:+.1f}"),
-                ("进程内 p50：A / B / A − B", lambda x: f"{x['a']['p50']:.1f} / {x['b']['p50']:.1f} / **{x['p50']:+.1f}**"),
-                ("进程内 p99：A / B / A − B", lambda x: f"{x['a']['p99']:.1f} / {x['b']['p99']:.1f} / **{x['p99']:+.1f}**")]
-        out += ["各版本各自的正式测量（不同时段跑的，所以除了代码之外还有时段的差别；ns）：\n",
-                "| | " + " | ".join(c[0] for c in cols) + " |", "|---|" + "---|" * len(cols)]
-        for label, fn in rows:
-            out.append(f"| {label} | " + " | ".join(fn(x) for x in t) + " |")
-    # 同一时段轮流跑的对比
-    rounds = []
-    exp = os.path.join(ROOT, "logs/exp/sleep-unchecked/summary.json")
-    if os.path.exists(exp):
-        with open(exp) as f:
-            for r in json.load(f)["rounds"]:
-                rounds.append(("并入之前的实验", r["A"], r["X"]))
-    for p in sorted(glob.glob(os.path.join(ROOT, "logs/versions/*/summary.json"))):
-        with open(p) as f:
-            for r in json.load(f)["rounds"]:
-                rounds.append((os.path.basename(os.path.dirname(p)), r["A1"], r["A2"]))
-    if rounds:
-        pos = ("pos1", "pos2", "pos3", "pos4+")
-        inc = lambda x: " / ".join(f"{x['seg2_mean_by_position'][pos[i + 1]]['A'] - x['seg2_mean_by_position'][pos[i]]['A']:.0f}" for i in range(3))
-        out += ["", f"同一时段轮流跑（每一轮里 v1 的 A、v2 的 A、B 各跑 60 秒，消除时段的差别；共 {len(rounds)} 轮）。表里都是\"A − B\"，ns：\n",
-                "| 轮 | 来源 | ② 批内排队：v1 → v2 | 每往后一个位置 A 的段②增加：v1 → v2 | 段② p99 的差值：v1 → v2 | 段② 平均的差值：v1 → v2 | 进程内 p50 的差值：v1 → v2 | 进程内 p99 的差值：v1 → v2 |",
-                "|---|---|---|---|---|---|---|---|"]
-        for i, (src, o, n) in enumerate(rounds, 1):
-            out.append(f"| {i} | {src} | {o['queueing_extra_ns']:+.1f} → **{n['queueing_extra_ns']:+.1f}** | {inc(o)} → {inc(n)} "
-                       f"| {o['seg2_diff']['p99']:+.1f} → **{n['seg2_diff']['p99']:+.1f}** | {o['seg2_diff']['mean']:+.1f} → {n['seg2_diff']['mean']:+.1f} "
-                       f"| {o['inproc_diff']['p50']:+.1f} → {n['inproc_diff']['p50']:+.1f} | {o['inproc_diff']['p99']:+.1f} → {n['inproc_diff']['p99']:+.1f} |")
-        chg = lambda key, sub=None: [(n[key][sub] if sub else n[key]) - (o[key][sub] if sub else o[key]) for _, o, n in rounds]
-        line = []
-        for label, xs in (("② 批内排队", chg("queueing_extra_ns")), ("段② p99 的差值", chg("seg2_diff", "p99")), ("段② 平均的差值", chg("seg2_diff", "mean")),
-                          ("进程内 p50 的差值", chg("inproc_diff", "p50")), ("进程内 p99 的差值", chg("inproc_diff", "p99"))):
-            m, lo, hi = mean_ci(xs)
-            line.append(f"{label} {m:+.1f}（95% 区间 {lo:+.1f} ~ {hi:+.1f}，{sum(x < 0 for x in xs)} / {len(xs)} 轮下降）")
-        out.append(f"\n逐轮的变化量（v2 − v1）：" + "；".join(line) + "。")
-    return "\n".join(out) if out else "（没有可对比的数据）"
-
-
-def session_entries(a):
-    """全部会话：[(meta, A 主考核, B 主考核, ci, 交替对比目录)]，按测量开始时间排序。"""
-    entries = []
-    v1_ab = sorted(glob.glob(os.path.join(ROOT, "logs/v1/ab-*")))
-    if os.path.exists(os.path.join(ROOT, "logs/v1/final/meta.json")) and v1_ab:
-        entries.append((load("logs/v1/final/meta.json"), "logs/v1/final/A-600.json", "logs/v1/final/B-600.json", "logs/v1/final/ci.json",
-                        os.path.relpath(v1_ab[-1], ROOT)))
-    v2_ab = sorted(glob.glob(os.path.join(ROOT, "logs/v2/ab-*")))
-    if os.path.exists(os.path.join(ROOT, "logs/v2/final/meta.json")) and v2_ab:
-        entries.append((load("logs/v2/final/meta.json"), "logs/v2/final/A-600.json", "logs/v2/final/B-600.json", "logs/v2/final/ci.json",
-                        os.path.relpath(v2_ab[-1], ROOT)))
-    ab = sorted(glob.glob(os.path.join(ROOT, a.ab)))
-    meta_p = os.path.join(os.path.dirname(a.main_a), "meta.json")
-    if os.path.exists(os.path.join(ROOT, meta_p)) and os.path.exists(os.path.join(ROOT, a.ci)):
-        entries.append((load(meta_p), a.main_a, a.main_b, a.ci, os.path.relpath(ab[-1], ROOT) if ab else "none"))
-    for meta, rel in all_sessions():
-        if os.path.exists(os.path.join(ROOT, rel, "ci.json")):
-            entries.append((meta, rel + "/A-600.json", rel + "/B-600.json", rel + "/ci.json", rel + "/ab"))
-    return sorted(entries, key=lambda e: e[0]["started"])
-
-
-def section_samples(a):
-    """样本导出（--samples）对测量的干扰，以及 v3 的纠正（logs/exp/samples-slow/）。"""
-    import re
-    d = os.path.join(ROOT, "logs/exp/samples-slow")
-    groups = {}
-    for p in sorted(glob.glob(os.path.join(d, "*.json"))):
-        with open(p) as f:
-            groups.setdefault(re.sub(r"-\d+$", "", os.path.basename(p)[:-5]), []).append(json.load(f))
-    if not groups:
-        return "（没有实验数据：logs/exp/samples-slow/）"
-    rows = [("v2-plain", "A（v2），不导出样本"), ("v2-samples", "**A（v2），导出样本**"), ("v2-plain-mfence", "A（v2），不导出样本，T0 前加 `mfence`"),
-            ("v2-samples-mfence", "A（v2），导出样本，T0 前加 `mfence`"), ("fix-samples", "**A（实验版：写样本时预取下一条缓存行），导出样本**"),
-            ("v1-plain", "A（v1），不导出样本"), ("v1-samples", "A（v1），导出样本"), ("B-plain", "B，不导出样本"), ("B-samples", "B，导出样本")]
-    med = statistics.median
-    out = ["各 60 秒，同一时段轮流跑；除占比给出最小 ~ 最大之外，其余各列是各次运行的中位数（ns）：\n",
-           "| 组合 | 次数 | 段① ≥ 125 ns 的占比 | 段① 平均 / p99 | 段③ 平均 | ① + ② + ③ | 进程内 p50 / p99 / 平均 |", "|---|---|---|---|---|---|---|"]
-    for key, label in rows:
-        rs = groups.get(key)
-        if not rs:
-            continue
-        mm = lambda n, q: med(metric(r, n)[q] for r in rs)
-        sl = [r["seg1_slow_percent"] for r in rs]
-        out.append(f"| {label} | {len(rs)} | {min(sl):.2f}% ~ {max(sl):.2f}% | {mm('seg①', 'mean'):.1f} / {mm('seg①', 'p99'):.0f} | {mm('seg③', 'mean'):.1f} "
-                   f"| {med(sum(metric(r, n)['mean'] for n in ('seg①', 'seg②', 'seg③')) for r in rs):.1f} "
-                   f"| {mm('in-process', 'p50_interp'):.1f} / {mm('in-process', 'p99_interp'):.1f} / {mm('in-process', 'mean'):.1f} |")
-    lost = sum(r["counters"]["timeouts"] for rs in groups.values() for r in rs)
-    leak = sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for rs in groups.values() for r in rs)
-    out.append(f"\n共 {sum(len(v) for v in groups.values())} 次运行，丢包合计 {lost}，泄漏合计 {leak}。")
-    # 各会话的 10 分钟主考核（都带样本导出）里的慢发送占比
-    out += ["\n各会话的 10 分钟主考核（全部带样本导出）里，段① ≥ 125 ns 的占比：\n", "| 会话 | 代码版本 | A | B |", "|---|---|---|---|"]
-    for meta, pa, pb, _, _ in session_entries(a):
-        out.append(f"| {meta['name']} | {meta.get('version', '?')} | {load(pa)['seg1_slow_percent']:.2f}% | {load(pb)['seg1_slow_percent']:.2f}% |")
+    if not cols:
+        return "（没有数据）"
+    t = [tax_parts(pa, pb, ci) for _, pa, pb, ci in cols]
+    tri = lambda v: " / ".join(f"{x:.0f}" for x in v)
+    rows = [("① 接收路径本身（批内第 1 个包的段②差值）", lambda x: f"{x['path']:+.1f}"),
+            ("② 批内排队（后面的包多等，按占比平摊）", lambda x: f"{x['queue']:+.1f}"),
+            ("③ 发送侧调度（段① + 段③ 的差值）", lambda x: f"{x['send']:+.1f}"),
+            ("**合计 = 每请求总账**", lambda x: f"**{x['total']:+.1f}**"),
+            ("其中段①的差值", lambda x: f"{x['seg1']:+.1f}"),
+            ("每往后一个位置，段②增加：A", lambda x: tri(x["incr_a"])),
+            ("每往后一个位置，段②增加：B", lambda x: tri(x["incr_b"]))]
+    out = ["每个请求的平均值，A − B，ns：\n", "| 来源 | " + " | ".join(c[0] for c in cols) + " |", "|---|" + "---|" * len(cols)]
+    for label, fn in rows:
+        out.append(f"| {label} | " + " | ".join(fn(x) for x in t) + " |")
     return "\n".join(out)
+
+
+def section_vab(a):
+    """上一个版本与当前版本的同场对比，A 和 B 都比（scripts/versions-ab.sh）。"""
+    dirs = sorted(glob.glob(os.path.join(ROOT, "logs/versions-ab/*/")))
+    if not dirs:
+        return "（没有数据；运行 scripts/versions-ab.sh <旧版本标签>）"
+    out = []
+    for d in dirs:
+        name = os.path.basename(d.rstrip("/"))
+        old, cur = name.split("-vs-")
+        runs = {}
+        for p in glob.glob(os.path.join(d, "[AB]*-*.json")):
+            tag, i = os.path.basename(p)[:-5].rsplit("-", 1)
+            with open(p) as f:
+                runs[(tag, int(i))] = json.load(f)
+        idx = sorted(i for t, i in runs if t == "Aold" and all((x, i) in runs for x in ("Anew", "Bold", "Bnew")))
+        if not idx:
+            continue
+        tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
+        stats = [("进程内 p50", lambda r: metric(r, "in-process")["p50_interp"]), ("进程内 p99", lambda r: metric(r, "in-process")["p99_interp"]),
+                 ("进程内 平均", lambda r: metric(r, "in-process")["mean"]),
+                 ("段① 平均", lambda r: metric(r, "seg①")["mean"]),
+                 ("段② 平均", lambda r: metric(r, "seg②")["mean"]), ("段② p50", lambda r: metric(r, "seg②")["p50_interp"]),
+                 ("段② p99", lambda r: metric(r, "seg②")["p99_interp"]),
+                 ("段③ 平均", lambda r: metric(r, "seg③")["mean"]), ("① + ② + ③ 平均（总账）", tot)]
+        f = lambda xs: "{:+.1f} [{:+.1f}, {:+.1f}]".format(*mean_ci(xs))
+        g = lambda t, i: runs[(t, i)]
+        allr = [runs[(t, i)] for t in ("Aold", "Anew", "Bold", "Bnew") for i in idx]
+        lost = sum(r["counters"]["timeouts"] for r in allr)
+        leak = sum(r["mbuf"]["avail_initial"] - r["mbuf"]["avail_final"] for r in allr)
+        mism = sum(r["counters"]["tsc_mismatch"] for r in allr)
+        out += [f"**{old} ↔ {cur}**：{len(idx)} 轮，每轮里 {old} 的 A、{cur} 的 A、{old} 的 B、{cur} 的 B 各跑 {allr[0]['duration_sec']} 秒（顺序逐轮轮换，都不带样本导出）；"
+                f"共 {len(allr)} 次运行，丢包合计 {lost}，泄漏合计 {leak}，被拒绝的回复合计 {mism}。逐轮配对后的平均值与 95% 区间（ns）：\n",
+                f"| 指标 | A：{cur} − {old} | B：{cur} − {old} | A − B（{old}） | A − B（{cur}） | **A − B 的变化** | A − B 变小的轮数 |", "|---|---|---|---|---|---|---|"]
+        for label, fn in stats:
+            da = [fn(g("Anew", i)) - fn(g("Aold", i)) for i in idx]
+            db = [fn(g("Bnew", i)) - fn(g("Bold", i)) for i in idx]
+            ab_old = [fn(g("Aold", i)) - fn(g("Bold", i)) for i in idx]
+            ab_new = [fn(g("Anew", i)) - fn(g("Bnew", i)) for i in idx]
+            dd = [n - o for n, o in zip(ab_new, ab_old)]
+            out.append(f"| {label} | {f(da)} | {f(db)} | {f(ab_old)} | {f(ab_new)} | **{f(dd)}** | {sum(x < 0 for x in dd)} / {len(dd)} |")
+        sl = lambda t: [g(t, i)["seg1_slow_percent"] for i in idx]
+        out.append(f"\n段① ≥ 125 ns 的占比：{old} 的 A {min(sl('Aold')):.2f}% ~ {max(sl('Aold')):.2f}%，{cur} 的 A {min(sl('Anew')):.2f}% ~ {max(sl('Anew')):.2f}%；"
+                   f"{old} 的 B {min(sl('Bold')):.2f}% ~ {max(sl('Bold')):.2f}%，{cur} 的 B {min(sl('Bnew')):.2f}% ~ {max(sl('Bnew')):.2f}%。\n")
+    return "\n".join(out).rstrip()
+
+
+def section_bisect(a):
+    """v4 的第一版为什么让慢发送变多：五个版本同场轮流（logs/r1-bisect/）。"""
+    d = os.path.join(ROOT, "logs/r1-bisect")
+    labels = [("v3", "v3"), ("m1r2", "v3 + 最小的改动（接收时核对 + 停止检查），其余不动"), ("m2", "同上，再去掉 sleep 之后的那次核对"),
+              ("v4", "v4 的第一版（去掉了那次核对）"), ("vb", "**最终的 v4**（保留那次核对）")]
+    out = ["各 20 秒，五个版本轮流跑 3 轮；占比给出最小 ~ 最大，其余是 3 次的中位数（ns）：\n",
+           "| 版本 | A：段① ≥ 125 ns 占比 | A：段① 平均 | A：段③ 平均 | A：进程内 p50 / p99 | B：段① ≥ 125 ns 占比 | B：段① 平均 | B：段③ 平均 | B：进程内 p50 / p99 |", "|---|---|---|---|---|---|---|---|---|"]
+    med = statistics.median
+    n = 0
+    for key, label in labels:
+        cells = [label]
+        for c in "AB":
+            rs = []
+            for p in sorted(glob.glob(os.path.join(d, f"{c}-{key}-*.json"))):
+                with open(p) as f:
+                    rs.append(json.load(f))
+            if not rs:
+                cells += ["—"] * 4
+                continue
+            n += len(rs)
+            sl = [r["seg1_slow_percent"] for r in rs]
+            mm = lambda name, q: med(metric(r, name)[q] for r in rs)
+            cells += [f"{min(sl):.2f}% ~ {max(sl):.2f}%", f"{mm('seg①', 'mean'):.1f}", f"{mm('seg③', 'mean'):.1f}",
+                      f"{mm('in-process', 'p50_interp'):.1f} / {mm('in-process', 'p99_interp'):.1f}"]
+        out.append("| " + " | ".join(cells) + " |")
+    return "\n".join(out) + f"\n\n共 {n} 次运行。各版本的含义和重现方法见 `logs/r1-bisect/README.md`。" if n else "（没有数据）"
 
 
 def section_stores(a):
@@ -833,10 +540,9 @@ def section_env(a):
 
 
 def sections_table():
-    return (("main", section_main), ("totals", section_totals), ("ab", section_ab), ("c", section_c), ("probe", section_probe),
-            ("ci", section_ci), ("burst", section_burst), ("diag", section_diag), ("stores", section_stores), ("sessions", section_sessions), ("drift", section_drift), ("day", section_day), ("samples", section_samples), ("versions", section_versions),
-            ("fault", section_fault),
-            ("soak", section_soak), ("env", section_env))
+    return (("main", section_main), ("totals", section_totals), ("ab", section_ab), ("vab", section_vab), ("bisect", section_bisect), ("c", section_c), ("probe", section_probe),
+            ("ci", section_ci), ("burst", section_burst), ("tax", section_tax), ("diag", section_diag), ("stores", section_stores),
+            ("fault", section_fault), ("soak", section_soak), ("env", section_env))
 
 
 def main():

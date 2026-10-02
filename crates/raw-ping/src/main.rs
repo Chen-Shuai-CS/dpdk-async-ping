@@ -36,6 +36,9 @@ enum State {
 struct Held {
     mbuf: Mbuf,
     stamp: Stamp,
+    seq: u16,
+    /// 回复里带回的、我们发送时写入的 TSC。接收时已核对过一次；record 时再核对一次（与 A 相同）
+    tx_tsc: u64,
     t2: u64,
     t3: u64,
 }
@@ -149,7 +152,7 @@ impl Raw {
                 let State::Waiting { stamp, .. } = s.state else { unreachable!("Accept 只在 Waiting 状态下出现") };
                 let t3 = rdtsc(); // T3：reply 交到该 session 的状态机，可以开始算延迟
                 self.stats.c.received += 1;
-                s.held = Some(Held { mbuf: m, stamp, t2, t3 });
+                s.held = Some(Held { mbuf: m, stamp, seq, tx_tsc, t2, t3 });
                 let deadline = t3 + self.delay;
                 s.state = State::Sleeping { deadline };
                 self.timers.push(deadline, id as u32);
@@ -186,8 +189,11 @@ impl Raw {
             }
             // SPEC 的 loop 形状：sleep 结束后才 record(reply)，然后 reply（mbuf）被释放
             if let Some(h) = s.held.take() {
-                // 这个 reply 的身份在接收时已经核对过（`Session::judge`）
-                self.stats.on_reply(h.stamp, h.t2, h.t3);
+                // 这个 reply 的身份在接收时已经核对过（`Session::judge`）；这里再核对一次，与 A 的 record 相同。
+                // 这一道不能随手删：见 `Stats::verify_echo` 的说明
+                if self.stats.verify_echo(h.stamp, h.tx_tsc, id as u16, h.seq) {
+                    self.stats.on_reply(h.stamp, h.t2, h.t3);
+                }
                 drop(h.mbuf);
             }
             if self.stopping {
