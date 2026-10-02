@@ -1,15 +1,15 @@
-[1;34m[18:59:48][0m 一、语言与依赖（SPEC：Rust；自研 executor / Waker / timer / reactor；不得使用现成 runtime）
+[1;34m[20:40:13][0m 一、语言与依赖（SPEC：Rust；自研 executor / Waker / timer / reactor；不得使用现成 runtime）
 [1;32m  ✔[0m Cargo.lock 里没有任何现成的 async runtime / 执行器 / reactor 库
 [1;32m  ✔[0m rt（runtime）只依赖本仓库的 dpdk 与 timerq 两个 crate
 [1;32m  ✔[0m rt 自己实现了 Waker（RawWakerVTable）、就绪队列、timer、poll-mode 主循环
 [1;32m  ✔[0m 主循环里没有任何会睡眠 / 阻塞的调用（epoll、sleep、park、condvar）
-[1;34m[18:59:48][0m 二、三个客户端与命令行（SPEC §6）〔本次重新执行〕
+[1;34m[20:40:13][0m 二、三个客户端与命令行（SPEC §6）〔本次重新执行〕
 [1;32m  ✔[0m async-ping（A）与 raw-ping（B）都能构建
 [1;32m  ✔[0m async-ping 接受 --delay-us / --duration-sec / --sessions
 [1;32m  ✔[0m raw-ping 接受 --delay-us / --duration-sec / --sessions
 [1;32m  ✔[0m A 和 B 共用同一份参数定义、同一个发送函数（段①）
 [1;32m  ✔[0m C（系统 ping）的运行脚本存在
-[1;34m[18:59:48][0m 三、unsafe 的边界
+[1;34m[20:40:19][0m 三、unsafe 的边界
     unsafe 块 / 函数共 59 处（不含 bindgen 生成的 dpdk-sys）：
       dpdk         47
       rt           6
@@ -20,10 +20,10 @@
       timerq       0
 [1;32m  ✔[0m 每一个 unsafe 块上方都有 SAFETY 说明
 [1;32m  ✔[0m 协议解析（pingproto）与 timer 堆（timerq）完全不含 unsafe
-[1;34m[18:59:48][0m 四、静态检查与测试〔本次重新执行；以 cargo 的退出码为准〕
+[1;34m[20:40:19][0m 四、静态检查与测试〔本次重新执行；以 cargo 的退出码为准〕
 [1;32m  ✔[0m cargo clippy --workspace --all-targets -- -D warnings：退出码 0
 [1;32m  ✔[0m cargo test --workspace：退出码 0（本次执行，50 个测试通过）
-[1;34m[19:00:07][0m 五、硬门槛：主考核日志（SPEC：≥ 10 分钟不崩、零 mbuf 泄漏、零丢包或有解释）〔检查已有的日志 logs/final/，不重新运行〕
+[1;34m[20:40:28][0m 五、硬门槛：主考核日志（SPEC：≥ 10 分钟不崩、零 mbuf 泄漏、零丢包或有解释）〔检查已有的日志 logs/final/，不重新运行〕
 [1;32m  ✔[0m A：运行时长 ≥ 600 秒，正常退出
 [1;32m  ✔[0m A：零 mbuf 泄漏
 [1;32m  ✔[0m A：零丢包（0 超时）
@@ -41,10 +41,10 @@
 [1;32m  ✔[0m B：是排名口径的运行（没有开任何诊断开关），且由干净的源码树构建
 [1;32m  ✔[0m B：由默认构建产生（不是 probe / fault 构建）
 [1;32m  ✔[0m A 与 B 的主考核来自同一个代码版本
-[1;34m[19:00:08][0m 六、交付物（SPEC §8）〔检查文件与已有的日志〕
+[1;34m[20:40:29][0m 六、交付物（SPEC §8）〔检查文件与已有的日志〕
 [1;32m  ✔[0m README.md、docs/REPORT.md（延迟报告）、docs/WORKLOG.md 都在
 [1;32m  ✔[0m 一键搭环境 / 一键运行脚本可执行
 [1;32m  ✔[0m 报告由脚本从日志生成（可复现）
 [1;32m  ✔[0m 故障注入结果存在且全部通过
 
-[1;34m[19:00:08][0m 全部 34 项通过
+[1;34m[20:40:29][0m 全部 34 项通过
