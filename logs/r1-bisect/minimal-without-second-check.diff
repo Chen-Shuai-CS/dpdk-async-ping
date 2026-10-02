@@ -1,0 +1,145 @@
+diff --git a/crates/async-ping/src/driver.rs b/crates/async-ping/src/driver.rs
+index f6a19b3..8c80f44 100644
+--- a/crates/async-ping/src/driver.rs
++++ b/crates/async-ping/src/driver.rs
+@@ -27,6 +27,7 @@ pub struct Timeout;
+ /// 一个 session 在协议侧的状态：正在等哪个 seq、何时超时、以及交付 reply 的信箱。
+ pub struct Flow {
+     pub expect: Cell<Option<u16>>,
++    pub expect_t0: Cell<u64>,
+     pub timeout_at: Cell<u64>,
+     recent_timeouts: Cell<[Option<u16>; 4]>,
+     rt_pos: Cell<usize>,
+@@ -37,6 +38,7 @@ impl Flow {
+     fn new() -> Flow {
+         Flow {
+             expect: Cell::new(None),
++            expect_t0: Cell::new(0),
+             timeout_at: Cell::new(0),
+             recent_timeouts: Cell::new([None; 4]),
+             rt_pos: Cell::new(0),
+@@ -46,8 +48,9 @@ impl Flow {
+ 
+     /// 发送成功后登记"我在等 seq"（在 reply 可能被处理之前，单线程下不存在竞态）。
+     #[inline]
+-    pub fn arm(&self, seq: u16, timeout_at: u64) {
++    pub fn arm(&self, seq: u16, t0: u64, timeout_at: u64) {
+         self.expect.set(Some(seq));
++        self.expect_t0.set(t0);
+         self.timeout_at.set(timeout_at);
+     }
+ 
+@@ -152,6 +155,10 @@ impl rt::Driver for IcmpDriver<'_> {
+                     return;
+                 };
+                 if f.expect.get() == Some(seq) {
++                    if f.expect_t0.get() != tx_tsc {
++                        sh.stats.borrow_mut().on_tsc_mismatch(id, seq, tx_tsc, f.expect_t0.get());
++                        return;
++                    }
+                     f.expect.set(None);
+                     if f.mailbox.put(Ok(Reply { mbuf: m, t2, tx_tsc })).is_err() {
+                         sh.stats.borrow_mut().c.unexpected += 1; // 不应发生：信箱里已有未取走的东西
+diff --git a/crates/async-ping/src/main.rs b/crates/async-ping/src/main.rs
+index 723a256..2e42d15 100644
+--- a/crates/async-ping/src/main.rs
++++ b/crates/async-ping/src/main.rs
+@@ -28,7 +28,7 @@ const TX_RETRY_NS: u64 = 1_000;
+ 
+ /// 段①。**T0 = 本函数入口**（SPEC §7），在向 runtime 查找端口之前读取；
+ /// 随后调用与 B 相同的发送函数。成功后登记"在等 seq"。TX 环满等罕见情况下 sleep 1 µs 重试。
+-async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
++async fn send(sh: &Shared, id: u16, seq: u16) -> Option<Stamp> {
+     loop {
+         if let Some(d) = sh.diag_pre_t0 {
+             d.run(); // 诊断开关（默认关）：见 Args::diag_pre_t0。在 T0 之前，不在任何被测段里
+@@ -36,9 +36,9 @@ async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
+         let t0 = rdtsc(); // T0
+         match with_port(|p| sh.sender.send(p, t0, id, seq)) {
+             Ok(stamp) => {
+-                sh.flows[id as usize].arm(seq, stamp.t0 + sh.timeout);
++                sh.flows[id as usize].arm(seq, stamp.t0, stamp.t0 + sh.timeout);
+                 sh.stats.borrow_mut().c.sent += 1;
+-                return stamp;
++                return Some(stamp);
+             }
+             Err(e) => {
+                 {
+@@ -50,6 +50,9 @@ async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
+                     }
+                 }
+                 sleep(sh.tx_retry).await;
++                if sh.stopping.get() {
++                    return None;
++                }
+             }
+         }
+     }
+@@ -67,9 +70,8 @@ async fn wait_reply(sh: &Shared, id: u16, seq: u16) -> Result<Reply, Timeout> {
+ fn record(sh: &Shared, id: u16, seq: u16, stamp: Stamp, reply: Result<Reply, Timeout>, t3: u64) {
+     if let Ok(reply) = reply {
+         let mut st = sh.stats.borrow_mut();
+-        if st.verify_echo(stamp, reply.tx_tsc, id, seq) {
+-            st.on_reply(stamp, reply.t2, t3);
+-        }
++        let _ = (id, seq, reply.tx_tsc);
++        st.on_reply(stamp, reply.t2, t3);
+     } // Err(Timeout)：已由 driver 计为丢失，不进入延迟分布
+ }
+ 
+@@ -87,7 +89,7 @@ async fn session(sh: Rc<Shared>, id: u16, first_deadline: u64) {
+     let mut woke: SleepInfo = sleep_until(first_deadline).await;
+     let mut seq: u16 = 0;
+     while !sh.stopping.get() {
+-        let stamp = send(&sh, id, seq).await; // T0 → T1
++        let Some(stamp) = send(&sh, id, seq).await else { break }; // T0 → T1
+         sh.stats.borrow_mut().on_wake(woke.deadline, woke.fired_at, stamp.t0); // 上一次 sleep 的误差与段③
+ 
+         let reply = wait_reply(&sh, id, seq).await; // T2 → T3
+diff --git a/crates/pingkit/src/stats.rs b/crates/pingkit/src/stats.rs
+index 77a2af4..167c6ac 100644
+--- a/crates/pingkit/src/stats.rs
++++ b/crates/pingkit/src/stats.rs
+@@ -167,6 +167,15 @@ impl Stats {
+     /// 在 record(reply) 时核对：回复带回的时间戳必须等于我们发这个请求时写入的 T0。
+     /// 放在 sleep 之后，不在任何被测段里。返回 false 表示对不上：调用方**不得**把它计入延迟分布
+     /// （它不是这个请求的应答，用它算出来的延迟没有意义）。
++    #[cold]
++    #[inline(never)]
++    pub fn on_tsc_mismatch(&mut self, id: u16, seq: u16, echoed_tsc: u64, expect_t0: u64) {
++        self.c.tsc_mismatch += 1;
++        self.note_anomaly(format_args!(
++            "tsc_mismatch：id={id} seq={seq}，回复带回的 TSC={echoed_tsc}，在等的请求写入的 T0={expect_t0}；已拒绝，原请求继续等"
++        ));
++    }
++
+     #[inline]
+     #[must_use]
+     pub fn verify_echo(&mut self, s: Stamp, echoed_tsc: u64, id: u16, seq: u16) -> bool {
+diff --git a/crates/raw-ping/src/main.rs b/crates/raw-ping/src/main.rs
+index ad9e8eb..936c851 100644
+--- a/crates/raw-ping/src/main.rs
++++ b/crates/raw-ping/src/main.rs
+@@ -128,6 +128,10 @@ impl Raw {
+         };
+         match s.state {
+             State::Waiting { seq: want, stamp, .. } if want == seq => {
++                if stamp.t0 != tx_tsc {
++                    self.stats.on_tsc_mismatch(id, seq, tx_tsc, stamp.t0);
++                    return;
++                }
+                 let t3 = rdtsc(); // T3：reply 交到该 session 的状态机，可以开始算延迟
+                 self.stats.c.received += 1;
+                 s.held = Some(Held { mbuf: m, stamp, seq, tx_tsc, t2, t3 });
+@@ -165,9 +169,8 @@ impl Raw {
+             }
+             // SPEC 的 loop 形状：sleep 结束后才 record(reply)，然后 reply（mbuf）被释放
+             if let Some(h) = s.held.take() {
+-                if self.stats.verify_echo(h.stamp, h.tx_tsc, id as u16, h.seq) {
+-                    self.stats.on_reply(h.stamp, h.t2, h.t3);
+-                }
++                let _ = (h.tx_tsc, h.seq);
++                self.stats.on_reply(h.stamp, h.t2, h.t3);
+                 drop(h.mbuf);
+             }
+             if self.stopping {
