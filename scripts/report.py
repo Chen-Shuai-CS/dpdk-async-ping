@@ -52,12 +52,12 @@ def main():
     print(gates(B, "B raw-ping"))
 
     print("\n### 收包对账与异常包\n")
-    print("| 客户端 | 收到的包 | = 按时回复 | + 迟到 | + 对不上号 | + 外来回复 | + 无关帧 | + ARP 请求 | 差值 | 时间戳核对不符 |")
+    print("| 客户端 | 收到的包 | = 按时回复 | + 迟到 | + 对不上号 | + 外来回复 | + 被拒绝（时间戳不符） | + 无关帧 | + ARP 请求 | 差值 |")
     print("|---|---|---|---|---|---|---|---|---|---|")
     for label, r in (("A", A), ("B", B)):
         c = r["counters"]
-        parts = [c["received"], c["late"], c["unexpected"], c.get("foreign", 0), c["other_rx"], c["arp_replies"]]
-        print(f"| {label} | {c['rx_pkts']:,} | " + " | ".join(f"{x:,}" for x in parts) + f" | {c['rx_pkts'] - sum(parts)} | {c.get('tsc_mismatch', 0)} |")
+        parts = [c["received"], c["late"], c["unexpected"], c.get("foreign", 0), c.get("tsc_mismatch", 0), c["other_rx"], c["arp_replies"]]
+        print(f"| {label} | {c['rx_pkts']:,} | " + " | ".join(f"{x:,}" for x in parts) + f" | {c['rx_pkts'] - sum(parts)} |")
     for label, r in (("A", A), ("B", B)):
         for note in r.get("anomalies", []):
             print(f"- {label}：{note}")

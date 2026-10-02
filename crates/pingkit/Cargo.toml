@@ -17,3 +17,6 @@ serde_json = "1"
 [features]
 # 诊断：把段①拆成 取 mbuf / 写包 / tx_burst，并按发送队列位置统计慢 tx_burst。默认关闭（会多两次时钟读取）。
 probe = []
+# 故障注入钩子：让发送在指定的时间段内持续失败（环境变量 BQ_FAULT_TX，见 sender.rs）。默认关闭——
+# 正式的可执行文件里没有这段代码；只有 scripts/fault.py 为"发送持续失败"那几个场景单独编译的版本打开它。
+fault = []

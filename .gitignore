@@ -9,3 +9,4 @@
 # 要留档的运行由 campaign.sh / session.sh / ab.sh 写进各自的子目录。
 /logs/[AB]-2*.log
 /logs/[AB]-2*.json
+/target-fault

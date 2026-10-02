@@ -5,6 +5,7 @@
 //! - [`dataplane`]：EAL / mempool / 端口初始化，关停与 mbuf 泄漏核对
 //! - [`sender`]：发送一个 echo request（段①：T0 → T1）
 //! - `TimerHeap`（来自 `timerq`）：按 TSC deadline 排序的最小堆（A 的 timer 与 B 的 delay 都用它）
+//! - [`matching`]：一个到达的回复算不算在等的那个请求的应答（A、B 共用的判定）
 //! - [`hist`] / [`stats`]：直方图与报表
 //! - [`samples`]：可选的逐样本原始记录（`--samples`），给离线的置信区间分析用
 //! - [`envinfo`]：构建信息与运行环境，写进每份报告
@@ -17,6 +18,7 @@ pub mod envinfo;
 pub mod hist;
 pub mod house;
 pub mod live;
+pub mod matching;
 pub mod samples;
 pub mod sender;
 pub mod stats;
@@ -24,6 +26,7 @@ pub mod stats;
 pub use args::{Args, Diag};
 pub use dataplane::Dataplane;
 pub use envinfo::EnvInfo;
+pub use matching::{judge, Verdict};
 pub use dpdk::tsc::rdtsc;
 pub use sender::{SendError, Sender, Stamp};
 pub use stats::Stats;

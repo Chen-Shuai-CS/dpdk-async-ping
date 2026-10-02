@@ -101,9 +101,18 @@ impl Hist {
     /// 本机的 TSC 每 10 ns 才跳一步（步长 26 周期），所以任何时间差都只能是 10 ns 的整数倍：
     /// 一个真实长度为 x 的间隔会被量成 x 两侧的格点之一（平均值仍是 x）。普通分位数因此只能落在格点上，
     /// A、B 两个分位数相减也只能得到 10 ns 的整数倍，分不清"差 2 ns"和"差 9 ns"。
-    /// 这里用分组数据的标准做法：把每一格的样本看成均匀分布在 [格点 − step/2, 格点 + step/2) 内，再在格内线性插值。
-    /// 得到的是"真实分布被 ±1 格的对称窗口抹平之后"的分位数：分布平缓处误差远小于一格，紧贴硬边界处可到半格。
-    /// A 和 B 用的是同一把尺子、受到同样的抹平，所以两者的插值分位数相减是公平的。
+    ///
+    /// 估计方法分两种情况，取决于目标分位数落在哪种桶里：
+    /// - **窄桶（桶宽 ≤ step，本机即 4096 周期 ≈ 1.6 µs 以内的值）**：一个桶里至多有一个时钟格点。
+    ///   用分组数据的标准做法：把每一格的样本看成均匀分布在 [格点 − step/2, 格点 + step/2) 内，再在格内线性插值。
+    ///   得到的是"真实分布被 ±1 格的对称窗口抹平之后"的分位数：分布平缓处误差远小于一格，紧贴硬边界处可到半格。
+    ///   进程内耗时、段①、段②的 p50 ~ p99.9 都在这个范围里，排名指标用的就是这种情况。
+    /// - **宽桶（桶宽 > step）**：一个桶里有好几个格点，直方图已经分不清它们，"按格点插值"的前提不成立。
+    ///   这时只在桶 [lo, hi) 内线性插值，并夹在 [min, max] 内——精度就是桶宽（相对 < 0.8%），不比普通分位数更准。
+    ///   端到端延迟（几十到几百微秒）属于这种情况。
+    ///
+    /// 这是模型估计，小数位数不代表测量精度。A 和 B 用的是同一把尺子，但两边分布的形状不同时，
+    /// 插值的偏差不保证完全抵消（硬边界附近最多半格），所以报告里同时给出格点值和区间。
     pub fn quantile_interp(&self, q: f64, step: u64) -> f64 {
         if self.n == 0 {
             return 0.0;
@@ -111,26 +120,37 @@ impl Hist {
         let step = step.max(1);
         let rank = q * self.n as f64;
         let target = (rank.ceil() as u64).clamp(1, self.n);
-        // 把桶按 step 归并成"格"：格 g 收纳所有落在 [g·step, (g+1)·step) 的值
-        let (mut below, mut grid, mut in_grid) = (0u64, 0u64, 0u64);
+        /// 累计计数时的一"格"：窄桶按时钟格点归并（相邻几个桶可能属于同一格），宽桶自成一格。
+        #[derive(Clone, Copy, PartialEq)]
+        enum Cell {
+            Grid(u64),
+            Bucket(usize),
+        }
+        let (mut below, mut cell, mut in_cell) = (0u64, Cell::Grid(0), 0u64);
         for (i, &c) in self.counts.iter().enumerate() {
             if c == 0 {
                 continue;
             }
-            // 桶里那个格点值：实测值都是 step 的整数倍，而桶宽（1 / 2 / 4 … 周期）在 4096 周期（约 1.6 µs）以内都小于 step，
-            // 所以一个桶里至多有一个格点，就是不超过桶上界的最大那个整数倍
-            let g = (bounds(i).1 - 1) / step;
-            if g != grid {
-                if below + in_grid >= target {
+            let (lo, hi) = bounds(i);
+            // 窄桶里那个格点值：实测值都是 step 的整数倍，桶宽不超过 step 时一个桶里至多有一个，就是不超过桶上界的最大那个整数倍
+            let this = if hi - lo <= step { Cell::Grid((hi - 1) / step) } else { Cell::Bucket(i) };
+            if this != cell {
+                if below + in_cell >= target {
                     break;
                 }
-                below += in_grid;
-                (grid, in_grid) = (g, 0);
+                below += in_cell;
+                (cell, in_cell) = (this, 0);
             }
-            in_grid += c;
+            in_cell += c;
         }
-        let frac = ((rank - below as f64) / in_grid as f64).clamp(0.0, 1.0);
-        (grid as f64 - 0.5 + frac) * step as f64
+        let frac = ((rank - below as f64) / in_cell as f64).clamp(0.0, 1.0);
+        match cell {
+            Cell::Grid(g) => (g as f64 - 0.5 + frac) * step as f64,
+            Cell::Bucket(i) => {
+                let (lo, hi) = bounds(i);
+                (lo as f64 + frac * (hi - lo) as f64).clamp(self.min as f64, self.max as f64)
+            }
+        }
     }
 
     /// 取值 ≥ `v` 的样本占比（`v` 落在桶中间时按桶的下界算）。
@@ -225,6 +245,75 @@ mod tests {
         }
         let d = h2.quantile_interp(0.5, STEP) - h.quantile_interp(0.5, STEP);
         assert!((d - 5.0).abs() < 2.5, "两个分布的中位数相差 5 周期，插值分位数之差为 {d:.2}");
+    }
+
+    /// 审查意见 R6：宽桶（桶宽 > 时钟步长）里不能按格点插值。原来的公式把整个桶映射到桶上界附近的一个格点，
+    /// 对"所有样本都是 262,158 周期"会给出 264,186（偏高 2028 周期 ≈ 780 ns）。
+    #[test]
+    fn interpolation_in_wide_buckets_stays_inside_the_bucket() {
+        const STEP: u64 = 26;
+        // 单值分布：结果就是那个值（桶内插值后夹在 [min, max] 里）
+        let mut h = Hist::default();
+        for _ in 0..1000 {
+            h.record(262_158);
+        }
+        for q in [0.01, 0.5, 0.99, 1.0] {
+            assert_eq!(h.quantile_interp(q, STEP), 262_158.0, "q={q}");
+        }
+        // 一个宽桶里均匀铺开的值：各分位数落在桶内相应的位置，误差不超过桶宽
+        let (lo, hi) = bounds(index(262_158));
+        assert!(hi - lo > STEP, "这个测试要的是宽桶");
+        let mut h = Hist::default();
+        for v in lo..hi {
+            h.record(v);
+        }
+        for q in [0.1, 0.5, 0.9] {
+            let want = lo as f64 + q * (hi - lo) as f64;
+            let got = h.quantile_interp(q, STEP);
+            assert!((got - want).abs() <= 1.0, "q={q} got={got} want={want}");
+            assert!(got >= lo as f64 && got <= hi as f64);
+        }
+    }
+
+    /// 窄桶与宽桶的分界（桶宽从 16 变成 32 周期的地方是 4096）：两侧各用各的估计方法，结果都不离谱。
+    #[test]
+    fn interpolation_across_the_narrow_wide_boundary() {
+        const STEP: u64 = 26;
+        assert!(bounds(index(4095)).1 - bounds(index(4095)).0 <= STEP);
+        assert!(bounds(index(4096)).1 - bounds(index(4096)).0 > STEP);
+        let mut h = Hist::default();
+        // 两个格点值：4082 = 157 × 26（窄桶一侧），4108 = 158 × 26（宽桶一侧），各一半
+        for _ in 0..500 {
+            h.record(4082);
+            h.record(4108);
+        }
+        let (p25, p75) = (h.quantile_interp(0.25, STEP), h.quantile_interp(0.75, STEP));
+        assert!((p25 - 4082.0).abs() <= STEP as f64 / 2.0, "p25={p25}");
+        let (lo, hi) = bounds(index(4108));
+        assert!(p75 >= lo as f64 && p75 <= hi as f64 && p75 <= 4108.0, "p75={p75} 应在 [{lo},{hi}) 内且不超过最大值");
+        assert!(p25 < p75);
+    }
+
+    /// 长尾混合分布：主体在窄桶区（几百周期），尾巴在宽桶区（几十万周期）。
+    /// 主体的分位数与没有尾巴时完全相同；尾部的分位数落在尾巴所在的桶里。
+    #[test]
+    fn interpolation_of_a_long_tailed_mixture() {
+        const STEP: u64 = 26;
+        let (mut body, mut mixed) = (Hist::default(), Hist::default());
+        for k in 0..10_000u64 {
+            let v = (12 + k % 8) * STEP; // 312 ~ 494 周期，都是格点
+            body.record(v);
+            mixed.record(v);
+        }
+        for _ in 0..10 {
+            mixed.record(300_014); // 尾巴：约 115 µs
+        }
+        // 10 个尾部样本占 0.1%，对 p50 的秩几乎没有影响：结果相差远小于一格
+        assert!((mixed.quantile_interp(0.5, STEP) - body.quantile_interp(0.5, STEP)).abs() < 1.0);
+        let tail = mixed.quantile_interp(0.9999, STEP);
+        let (lo, hi) = bounds(index(300_014));
+        assert!(tail >= lo as f64 && tail <= hi as f64, "尾部分位数 {tail} 应在 [{lo},{hi}) 内");
+        assert!(tail <= 300_014.0, "不超过实际的最大值");
     }
 
     #[test]

@@ -24,8 +24,8 @@ pub struct Counters {
     pub unexpected: u64,
     /// 源 IP 不是对端的 echo reply：不是对我们任何请求的应答，绝不交给 session
     pub foreign: u64,
-    /// 回复里带回的发送时间戳 ≠ 我们发这个请求时写入的 T0（重复包 / 损坏 / 伪造）。
-    /// 这样的回复已计入 received，但**不进入延迟分布**：样本数 = received − tsc_mismatch
+    /// `id/seq` 对得上、但回带的发送时间戳 ≠ 我们发这个请求时写入的 T0 的回复（seq 回绕后的旧回复 / 重放 / 损坏）。
+    /// 这样的回复**被拒绝**：不计入 received，不完成请求，原请求继续等（见 `matching`）。它是收包对账里单独的一类
     pub tsc_mismatch: u64,
     /// 其他与本程序无关的帧（非 IPv4/ARP、不是给我的……）
     pub other_rx: u64,
@@ -164,21 +164,15 @@ impl Stats {
         self.wake_total.record(t0_next.saturating_sub(deadline));
     }
 
-    /// 在 record(reply) 时核对：回复带回的时间戳必须等于我们发这个请求时写入的 T0。
-    /// 放在 sleep 之后，不在任何被测段里。返回 false 表示对不上：调用方**不得**把它计入延迟分布
-    /// （它不是这个请求的应答，用它算出来的延迟没有意义）。
-    #[inline]
-    #[must_use]
-    pub fn verify_echo(&mut self, s: Stamp, echoed_tsc: u64, id: u16, seq: u16) -> bool {
-        if echoed_tsc == s.t0 {
-            return true;
-        }
+    /// 一个 `id/seq` 对得上、回带时间戳对不上的回复被拒绝了（冷路径）：计数并留下明细。
+    /// 判定本身在 [`crate::matching::judge`]；调用方不得因此改变在途请求的状态。
+    #[cold]
+    #[inline(never)]
+    pub fn on_tsc_mismatch(&mut self, id: u16, seq: u16, echoed_tsc: u64, expect_t0: u64) {
         self.c.tsc_mismatch += 1;
         self.note_anomaly(format_args!(
-            "tsc_mismatch：id={id} seq={seq}，回复带回的 TSC={echoed_tsc}，我们写入的 T0={}；该样本不进入延迟分布",
-            s.t0
+            "tsc_mismatch：id={id} seq={seq}，回复带回的 TSC={echoed_tsc}，在等的请求写入的 T0={expect_t0}；已拒绝，原请求继续等"
         ));
-        false
     }
 
     /// `probe` 构建的附加诊断文本。
@@ -381,14 +375,14 @@ impl Report {
             c.timeouts, c.late
         );
         let samples = self.metrics.first().map_or(0, |m| m.count);
-        if samples != c.received - c.tsc_mismatch {
-            println!("样本对账：延迟样本 {samples} ≠ received − tsc-mismatch = {}（提前退出时，尚在 sleep 的 session 手里的回复不会被记录）", c.received - c.tsc_mismatch);
+        if samples != c.received {
+            println!("样本对账：延迟样本 {samples} ≠ received = {}（提前退出时，尚在 sleep 的 session 手里的回复不会被记录）", c.received);
         }
         // 收到的每个包必须恰好落入一类
         let rx_diff = c.rx_pkts as i64
-            - (c.received + c.late + c.unexpected + c.foreign + c.other_rx + c.arp_replies) as i64;
+            - (c.received + c.late + c.unexpected + c.foreign + c.tsc_mismatch + c.other_rx + c.arp_replies) as i64;
         println!(
-            "收包对账：rx {} − (received + late + unexpected + foreign + other + arp) = {rx_diff}（应为 0）",
+            "收包对账：rx {} − (received + late + unexpected + foreign + tsc-mismatch + other + arp) = {rx_diff}（应为 0）",
             c.rx_pkts
         );
         println!();
@@ -584,14 +578,12 @@ mod tests {
         assert_eq!(st.samples.as_slice().iter().map(|&v| unpack(v)).collect::<Vec<_>>(), vec![(130, 338, 200_000)]);
     }
 
-    /// 回复带回的时间戳对不上：计数、留下明细、并且告诉调用方不要把它记进延迟分布。
+    /// 被拒绝的回复：单独计数、留下明细，不动 received。
     #[test]
-    fn mismatched_echo_is_counted_and_excluded() {
+    fn rejected_echo_is_counted_separately() {
         let mut st = Stats::default();
-        let s = stamp(1_000, 1_130);
-        assert!(st.verify_echo(s, 1_000, 3, 7));
-        assert!(!st.verify_echo(s, 999, 3, 7));
-        assert_eq!(st.c.tsc_mismatch, 1);
+        st.on_tsc_mismatch(3, 7, 999, 1_000);
+        assert_eq!((st.c.tsc_mismatch, st.c.received), (1, 0));
         assert_eq!(st.anomalies.len(), 1);
         assert!(st.anomalies[0].contains("id=3 seq=7"));
     }

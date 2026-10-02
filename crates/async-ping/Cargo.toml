@@ -18,3 +18,5 @@ rt = { path = "../rt" }
 [features]
 # 诊断：把段②拆成三个子段打印（见 driver.rs / main.rs 中的 cfg(feature = "probe")）
 probe = ["rt/probe", "pingkit/probe"]
+# 故障注入钩子：见 pingkit 的 fault 特性
+fault = ["pingkit/fault"]

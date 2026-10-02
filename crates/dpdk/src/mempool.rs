@@ -1,4 +1,4 @@
-use crate::{Error, Mbuf, Result};
+use crate::{Eal, Error, Mbuf, Result};
 use dpdk_sys::rte_mempool;
 use std::ffi::CString;
 use std::ptr::NonNull;
@@ -12,9 +12,12 @@ pub struct Mempool {
 
 impl Mempool {
     /// `rte_pktmbuf_pool_create`。`n` 最好取 2^k − 1（DPDK 文档建议）。
-    pub fn create_pktmbuf_pool(name: &str, n: u32, cache_size: u32, data_room: u16, socket: i32) -> Result<&'static Mempool> {
+    ///
+    /// 必须出示 [`Eal`]：mempool 建在 EAL 管理的内存上，EAL 没有初始化时调用底层函数是未定义行为。
+    /// 这个前提由签名保证，而不是靠调用者自觉。
+    pub fn create_pktmbuf_pool(_eal: &Eal, name: &str, n: u32, cache_size: u32, data_room: u16, socket: i32) -> Result<&'static Mempool> {
         let cname = CString::new(name).expect("name");
-        // SAFETY: EAL 已初始化（能拿到 Eal 才能走到这里的调用方保证）；参数都是值类型。
+        // SAFETY: EAL 已初始化（`_eal` 是凭证：只有 `Eal::init` 成功才能得到它）；参数都是值类型。
         let p = unsafe { dpdk_sys::rte_pktmbuf_pool_create(cname.as_ptr(), n, cache_size, 0, data_room, socket) };
         let raw = NonNull::new(p).ok_or_else(|| Error::from_rte_errno("rte_pktmbuf_pool_create"))?;
         Ok(Box::leak(Box::new(Mempool { raw, size: n })))

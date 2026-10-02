@@ -1,6 +1,7 @@
 use crate::{Eal, Error, Mbuf, Mempool, Result};
 use dpdk_sys::rte_mbuf;
 use std::ffi::{c_int, c_void, CStr};
+use std::cell::Cell;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -10,13 +11,29 @@ pub const RX_BURST_MAX: usize = 32;
 /// 网卡报告"需要 reset"（ENA watchdog 触发等）时由 EAL 中断线程置位，主循环轮询它。
 static RESET_REQUESTED: AtomicBool = AtomicBool::new(false);
 
+/// 每个端口号是否已经有一个 [`Port`] 句柄。`Port` 是 `!Send`，但那只能保证"一个句柄不跨线程"，
+/// 保证不了"同一个底层端口只有一个句柄"——两个句柄可以一个在收发、另一个把端口关掉。所以领取是独占的。
+static CLAIMED: [AtomicBool; MAX_PORTS] = [const { AtomicBool::new(false) }; MAX_PORTS];
+const MAX_PORTS: usize = dpdk_sys::RTE_MAX_ETHPORTS as usize;
+
 /// 一个以太网端口（固定使用 RX/TX 队列 0）。
 ///
 /// 故意做成 `!Send + !Sync`：同一队列上的 rx_burst / tx_burst 不是线程安全的，
 /// 只允许在创建它的那个 lcore 线程上使用。
+///
+/// 安全接口依赖的前提，以及它们各自由什么保证：
+/// - **端口号有效、已配置**：只有 [`Port::configure`] 成功才能得到 `Port`；
+/// - **同一个端口只有一个句柄**：`configure` 独占领取端口号（`CLAIMED`），[`Port::close`] 成功后才归还；
+///   没有 `close` 就被丢弃的 `Port` 不归还——那个端口仍处于已配置状态，拒绝再次领取是安全的一侧；
+/// - **`close` 之前端口已停止**：`Port` 自己记着是否已启动，`close` 会先停止；
+/// - **没有启动（或已停止）时调用 `rx_burst` / `tx`**：内存安全，由 DPDK 保证——端口不在运行状态时，
+///   ethdev 把它的收发函数指针换成"返回 0"的空函数（`eth_dev_fp_ops_reset`，DPDK 21.11 起；本项目用的 25.11 见
+///   `lib/ethdev/ethdev_private.c`）。于是 `rx_burst` 返回 0，`tx` 把 mbuf 原样还给调用者。
+///   这一条没有用运行时判断来保证，是为了不在收发热路径上多一次分支；`crates/dpdk/tests/lifecycle.rs` 实测了这四种顺序。
 pub struct Port {
     id: u16,
     socket: i32,
+    started: Cell<bool>,
     _not_send: PhantomData<*const ()>,
 }
 
@@ -33,11 +50,19 @@ pub struct PortStats {
 
 impl Port {
     /// 配置端口 `id`：1 个 RX 队列（`nb_rxd` 个描述符，mbuf 取自 `pool`）+ 1 个 TX 队列。
-    pub fn configure(_eal: &Eal, id: u16, pool: &'static Mempool, nb_rxd: u16, nb_txd: u16) -> Result<Port> {
+    /// 同一个端口号只能被领取一次，直到那个 `Port` 被 [`Port::close`]。
+    pub fn configure(eal: &Eal, id: u16, pool: &'static Mempool, nb_rxd: u16, nb_txd: u16) -> Result<Port> {
         // SAFETY: 纯查询。
-        if unsafe { dpdk_sys::rte_eth_dev_count_avail() } <= id {
+        if unsafe { dpdk_sys::rte_eth_dev_count_avail() } <= id || id as usize >= MAX_PORTS {
             return Err(Error { what: "找不到 DPDK 端口（网卡是否已 bind？）", errno: 19 });
         }
+        if CLAIMED[id as usize].swap(true, Ordering::SeqCst) {
+            return Err(Error { what: "这个 DPDK 端口已经有一个 Port 句柄（同一个端口只能领取一次）", errno: 16 });
+        }
+        Self::configure_claimed(eal, id, pool, nb_rxd, nb_txd).inspect_err(|_| CLAIMED[id as usize].store(false, Ordering::SeqCst))
+    }
+
+    fn configure_claimed(_eal: &Eal, id: u16, pool: &'static Mempool, nb_rxd: u16, nb_txd: u16) -> Result<Port> {
         // SAFETY: 有效端口号。
         let socket = unsafe { dpdk_sys::rte_eth_dev_socket_id(id) }.max(0);
         let conf = dpdk_sys::rte_eth_conf::default(); // 不开任何 offload：IPv4 头是常量，ICMP 校验和网卡不支持
@@ -67,7 +92,7 @@ impl Port {
                 std::ptr::null_mut(),
             );
         }
-        Ok(Port { id, socket, _not_send: PhantomData })
+        Ok(Port { id, socket, started: Cell::new(false), _not_send: PhantomData })
     }
 
     pub fn id(&self) -> u16 {
@@ -82,20 +107,37 @@ impl Port {
     pub fn start(&self) -> Result<()> {
         // SAFETY: 端口已配置。
         let ret = unsafe { dpdk_sys::rte_eth_dev_start(self.id) };
-        if ret < 0 { Err(Error::from_ret("rte_eth_dev_start", ret)) } else { Ok(()) }
+        if ret < 0 {
+            return Err(Error::from_ret("rte_eth_dev_start", ret));
+        }
+        self.started.set(true);
+        Ok(())
     }
 
     /// 停止端口：PMD 把 RX 环、TX 环上的 mbuf 全部还给 mempool。
+    /// 停止之后仍然可以调用 `rx_burst` / `tx`（见类型说明）：前者返回 0，后者把 mbuf 原样还回来。
     pub fn stop(&self) -> Result<()> {
-        // SAFETY: 有效端口；之后不会再 rx/tx 直到再次 start。
+        // SAFETY: 有效端口。DPDK 在这里把收发函数指针换成空函数，之后的 rx/tx 调用不会碰已释放的队列。
         let ret = unsafe { dpdk_sys::rte_eth_dev_stop(self.id) };
-        if ret < 0 { Err(Error::from_ret("rte_eth_dev_stop", ret)) } else { Ok(()) }
+        if ret < 0 {
+            return Err(Error::from_ret("rte_eth_dev_stop", ret));
+        }
+        self.started.set(false);
+        Ok(())
     }
 
+    /// 关闭端口并归还端口号。还在运行的话先停止——"关闭前必须已停止"由这里保证，不靠调用者。
     pub fn close(self) -> Result<()> {
-        // SAFETY: 端口已停止；self 被消耗，之后无法再使用。
+        if self.started.get() {
+            self.stop()?;
+        }
+        // SAFETY: 端口已停止（上面刚保证）；self 被消耗，之后无法再使用。
         let ret = unsafe { dpdk_sys::rte_eth_dev_close(self.id) };
-        if ret < 0 { Err(Error::from_ret("rte_eth_dev_close", ret)) } else { Ok(()) }
+        if ret < 0 {
+            return Err(Error::from_ret("rte_eth_dev_close", ret));
+        }
+        CLAIMED[self.id as usize].store(false, Ordering::SeqCst);
+        Ok(())
     }
 
     pub fn mac(&self) -> [u8; 6] {

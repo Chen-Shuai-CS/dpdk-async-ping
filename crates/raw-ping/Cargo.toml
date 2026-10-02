@@ -18,3 +18,5 @@ serde_json = "1"
 [features]
 # 诊断：见 pingkit 的 probe 特性
 probe = ["pingkit/probe"]
+# 故障注入钩子：见 pingkit 的 fault 特性
+fault = ["pingkit/fault"]

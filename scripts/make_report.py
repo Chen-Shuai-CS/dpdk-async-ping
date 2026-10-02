@@ -17,8 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULTS = {
     "main_a": "logs/final/A-600.json",
     "main_b": "logs/final/B-600.json",
-    "rate_a": "logs/final/A-d800.json",
-    "rate_b": "logs/final/B-d800.json",
+    "rate_a": "logs/final/A-vsC.json",
+    "rate_b": "logs/final/B-vsC.json",
     "one_a": "logs/final/A-1flow.json",
     "probe_a": "logs/probe/async-ping-probe.json",
     "probe_b": "logs/probe/raw-ping-probe.json",
@@ -163,35 +163,35 @@ def section_ab(a):
 
 
 def c_row(label, cond, r):
-    m = r["metrics"][0] if "flows" in r else metric(r, "end-to-end")
-    lost = (r["sent"] - r["received"]) if "flows" in r else r["counters"]["timeouts"]
+    is_c = "flows" in r
+    m = r["metrics"][0] if is_c else metric(r, "end-to-end")
+    lost = (r["sent"] - r["received"]) if is_c else r["counters"]["timeouts"]
+    pps = r.get("actual_pps") if is_c else r["counters"]["sent"] / r["elapsed_sec"]   # 都是实测：发出的包数 ÷ 实际时长
     us = lambda v: f"{v / 1000:,.1f}"
-    return (f"| {label} | {cond} | {m['count']:,} | {lost} | {us(m['min'])} | {us(m['p50'])} | {us(m['p90'])} | {us(m['p99'])} "
+    return (f"| {label} | {cond} | {pps:,.0f} | {m['count']:,} | {lost} | {us(m['min'])} | {us(m['p50'])} | {us(m['p90'])} | {us(m['p99'])} "
             f"| {us(m['p99_9'])} | {us(m['p99_99'])} | {us(m['max'])} |")
 
 
 def latest_c(mode, flows):
-    best = None
-    for p in sorted(glob.glob(os.path.join(ROOT, f"logs/C-{mode}-*/C.json"))):
-        with open(p) as f:
-            r = json.load(f)
-        if r["flows"] == flows:
-            best = r
-    return best
+    p = os.path.join(ROOT, f"logs/c/{mode}-{flows}flow/C.json")
+    if not os.path.exists(p):
+        return None
+    with open(p) as f:
+        return json.load(f)
 
 
 def section_c(a):
-    hdr = ("| 客户端 | 条件 | 样本 | 丢包 | min | p50 | p90 | p99 | p99.9 | p99.99 | max |\n"
-           "|---|---|---|---|---|---|---|---|---|---|---|")
+    hdr = ("| 客户端 | 条件 | 实测速率（包/秒） | 样本 | 丢包 | min | p50 | p90 | p99 | p99.9 | p99.99 | max |\n"
+           "|---|---|---|---|---|---|---|---|---|---|---|---|")
     ra, rb, r1 = load(a.rate_a), load(a.rate_b), load(a.one_a)
-    out = ["#### 场景一：64 路、同速率（约 6.5 万包/秒），端到端（µs）\n", hdr,
+    out = ["#### 场景一：64 路、速率对齐，端到端（µs）\n", hdr,
            c_row("A", f"64 session，delay {ra['delay_us']} µs", ra),
            c_row("B", f"64 session，delay {rb['delay_us']} µs", rb)]
     for mode, desc in (("user", "64 × `ping -U -i 0.001`（用户态↔用户态）"), ("kernel", "64 × `ping -i 0.001`（内核收包时间戳）")):
         r = latest_c(mode, 64)
         if r:
             out.append(c_row("C", desc, r))
-    out += ["\n#### 场景二：单路、低速率（1000 包/秒），端到端（µs）\n", hdr,
+    out += ["\n#### 场景二：单路、低速率，端到端（µs）\n", hdr,
             c_row("A", f"1 session，delay {r1['delay_us']} µs", r1)]
     for mode, desc in (("user", "1 × `ping -U -i 0.001`（用户态↔用户态）"), ("kernel", "1 × `ping -i 0.001`（内核收包时间戳）")):
         r = latest_c(mode, 1)

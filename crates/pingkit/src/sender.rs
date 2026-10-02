@@ -43,6 +43,39 @@ pub struct Sender {
     last_t1: std::cell::Cell<u64>,
     #[cfg(feature = "probe")]
     count: std::cell::Cell<u64>,
+    #[cfg(feature = "fault")]
+    fault: Option<TxFault>,
+}
+
+/// 故障注入（`fault` 特性）：T0 落在 [from, to) 之内的发送一律失败，用来测"发送持续失败时程序还能不能按时收尾"。
+#[cfg(feature = "fault")]
+#[derive(Clone, Copy)]
+struct TxFault {
+    kind: SendError,
+    from: u64,
+    to: u64,
+}
+
+#[cfg(feature = "fault")]
+impl TxFault {
+    /// `BQ_FAULT_TX=txfull:2`（从启动后第 2 秒起一直失败）或 `nombuf:2-6`（第 2 秒到第 6 秒之间失败）。
+    fn from_env() -> Option<TxFault> {
+        let v = std::env::var("BQ_FAULT_TX").ok()?;
+        let (kind, span) = v.split_once(':')?;
+        let kind = match kind {
+            "txfull" => SendError::TxFull,
+            "nombuf" => SendError::NoMbuf,
+            _ => return None,
+        };
+        let (from, to) = match span.split_once('-') {
+            Some((a, b)) => (a.parse::<f64>().ok()?, Some(b.parse::<f64>().ok()?)),
+            None => (span.parse::<f64>().ok()?, None),
+        };
+        let (now, hz) = (rdtsc(), dpdk::tsc::hz() as f64);
+        let at = |sec: f64| now + (sec * hz) as u64;
+        eprintln!("★ 故障注入：发送在启动后 {from} 秒 ~ {} 之间一律失败（{kind:?}）", to.map_or("结束".to_string(), |t| format!("{t} 秒")));
+        Some(TxFault { kind, from: at(from), to: to.map_or(u64::MAX, at) })
+    }
 }
 
 impl Sender {
@@ -53,6 +86,8 @@ impl Sender {
             last_t1: std::cell::Cell::new(0),
             #[cfg(feature = "probe")]
             count: std::cell::Cell::new(0),
+            #[cfg(feature = "fault")]
+            fault: TxFault::from_env(),
         }
     }
 
@@ -63,6 +98,12 @@ impl Sender {
     /// 这样两边的段①覆盖的是语义相同的一段，A 为了发包而经过 runtime 的那一步也被计入。
     #[inline(always)]
     pub fn send(&self, port: &Port, t0: u64, id: u16, seq: u16) -> Result<Stamp, SendError> {
+        #[cfg(feature = "fault")]
+        if let Some(f) = self.fault {
+            if t0 >= f.from && t0 < f.to {
+                return Err(f.kind);
+            }
+        }
         let Some(mut m) = self.pool.alloc() else { return Err(SendError::NoMbuf) };
         #[cfg(feature = "probe")]
         let ta = rdtsc();

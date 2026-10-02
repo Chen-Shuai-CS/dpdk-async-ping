@@ -28,7 +28,12 @@ const TX_RETRY_NS: u64 = 1_000;
 
 /// 段①。**T0 = 本函数入口**（SPEC §7），在向 runtime 查找端口之前读取；
 /// 随后调用与 B 相同的发送函数。成功后登记"在等 seq"。TX 环满等罕见情况下 sleep 1 µs 重试。
-async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
+///
+/// 返回 `None` = 重试期间已经进入停止阶段，这个请求**没有发出去**，session 应当直接结束。
+/// 没有这一条的话，发送持续失败时 session 会永远卡在重试里，到时间或收到 SIGINT 都退不出去；
+/// 故障恢复之后还会在停止阶段多发一个请求。B 在每次发送前检查停止标志，这里与它对齐。
+/// 检查只放在重试分支里：第一次尝试之前，session 的循环条件刚刚检查过，正常路径不多一条指令。
+async fn send(sh: &Shared, id: u16, seq: u16) -> Option<Stamp> {
     loop {
         if let Some(d) = sh.diag_pre_t0 {
             d.run(); // 诊断开关（默认关）：见 Args::diag_pre_t0。在 T0 之前，不在任何被测段里
@@ -36,9 +41,9 @@ async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
         let t0 = rdtsc(); // T0
         match with_port(|p| sh.sender.send(p, t0, id, seq)) {
             Ok(stamp) => {
-                sh.flows[id as usize].arm(seq, stamp.t0 + sh.timeout);
+                sh.flows[id as usize].arm(seq, stamp.t0, stamp.t0 + sh.timeout);
                 sh.stats.borrow_mut().c.sent += 1;
-                return stamp;
+                return Some(stamp);
             }
             Err(e) => {
                 {
@@ -50,6 +55,9 @@ async fn send(sh: &Shared, id: u16, seq: u16) -> Stamp {
                     }
                 }
                 sleep(sh.tx_retry).await;
+                if sh.stopping.get() {
+                    return None;
+                }
             }
         }
     }
@@ -64,12 +72,10 @@ async fn wait_reply(sh: &Shared, id: u16, seq: u16) -> Result<Reply, Timeout> {
 }
 
 /// sleep 之后才记录样本，并在这里释放 reply 的 mbuf（`reply` 在本函数结束时 Drop）。
-fn record(sh: &Shared, id: u16, seq: u16, stamp: Stamp, reply: Result<Reply, Timeout>, t3: u64) {
+fn record(sh: &Shared, stamp: Stamp, reply: Result<Reply, Timeout>, t3: u64) {
     if let Ok(reply) = reply {
-        let mut st = sh.stats.borrow_mut();
-        if st.verify_echo(stamp, reply.tx_tsc, id, seq) {
-            st.on_reply(stamp, reply.t2, t3);
-        }
+        // 这个 reply 的身份（id / seq / 回带的时间戳）在 driver 接收它的时候已经核对过，见 `Flow::accept`
+        sh.stats.borrow_mut().on_reply(stamp, reply.t2, t3);
     } // Err(Timeout)：已由 driver 计为丢失，不进入延迟分布
 }
 
@@ -87,7 +93,7 @@ async fn session(sh: Rc<Shared>, id: u16, first_deadline: u64) {
     let mut woke: SleepInfo = sleep_until(first_deadline).await;
     let mut seq: u16 = 0;
     while !sh.stopping.get() {
-        let stamp = send(&sh, id, seq).await; // T0 → T1
+        let Some(stamp) = send(&sh, id, seq).await else { break }; // T0 → T1；None = 没发出去就进入了停止阶段
         sh.stats.borrow_mut().on_wake(woke.deadline, woke.fired_at, stamp.t0); // 上一次 sleep 的误差与段③
 
         let reply = wait_reply(&sh, id, seq).await; // T2 → T3
@@ -105,7 +111,7 @@ async fn session(sh: Rc<Shared>, id: u16, first_deadline: u64) {
         }
 
         woke = sleep_until(t3 + sh.delay).await; // 期间 `reply`（及其 mbuf）一直被本 task 持有
-        record(&sh, id, seq, stamp, reply, t3);
+        record(&sh, stamp, reply, t3);
         seq = seq.wrapping_add(1);
     }
 }

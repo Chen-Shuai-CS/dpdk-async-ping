@@ -13,7 +13,7 @@ use dpdk::{Mbuf, RxBurst};
 use pingkit::house::{maintain, House};
 use pingkit::live::{self, Live};
 use pingkit::stats::{port_summary, Report, STALL_RX_THRESHOLD_NS, STALL_THRESHOLD_NS};
-use pingkit::{rdtsc, Args, Dataplane, SendError, Sender, Stamp, Stats, TimerHeap};
+use pingkit::{judge, rdtsc, Args, Dataplane, SendError, Sender, Stamp, Stats, TimerHeap, Verdict};
 use pingproto::{arp_reply_in_place, classify, Rx};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -36,9 +36,6 @@ enum State {
 struct Held {
     mbuf: Mbuf,
     stamp: Stamp,
-    seq: u16,
-    /// 回复里带回的、我们发送时写入的 TSC；record 时用来核对它确实是这个请求的应答
-    tx_tsc: u64,
     t2: u64,
     t3: u64,
 }
@@ -65,6 +62,27 @@ impl Session {
     fn remember_timeout(&mut self, seq: u16) {
         self.recent_timeouts[self.rt_pos] = Some(seq);
         self.rt_pos = (self.rt_pos + 1) % self.recent_timeouts.len();
+    }
+
+    /// 一个 echo reply 到了：判定它是不是在等的那个请求的应答（与 A 的 `Flow::accept` 用同一个 `judge`）。
+    /// 只有 `Accept` 才应当结束等待；其余三种都不改变在途请求的状态和它的超时时刻。
+    #[inline(always)]
+    fn judge(&self, seq: u16, echoed_tsc: u64) -> Verdict {
+        let expect = match self.state {
+            State::Waiting { seq: want, stamp, .. } => Some((want, stamp.t0)),
+            _ => None,
+        };
+        judge(expect, seq, echoed_tsc, || self.recent_timeouts.contains(&Some(seq)))
+    }
+
+    /// 超时扫描：在途请求到了超时时刻就结束等待并记住这个 seq。返回超时的 seq；调用方负责安排之后的 delay。
+    fn expire(&mut self, now: u64) -> Option<u16> {
+        let State::Waiting { seq, timeout_at, .. } = self.state else { return None };
+        if now < timeout_at {
+            return None;
+        }
+        self.remember_timeout(seq);
+        Some(seq)
     }
 }
 
@@ -126,28 +144,31 @@ impl Raw {
             self.stats.note_anomaly(format_args!("unexpected：id={id} 超出 session 范围，seq={seq}"));
             return;
         };
-        match s.state {
-            State::Waiting { seq: want, stamp, .. } if want == seq => {
+        match s.judge(seq, tx_tsc) {
+            Verdict::Accept => {
+                let State::Waiting { stamp, .. } = s.state else { unreachable!("Accept 只在 Waiting 状态下出现") };
                 let t3 = rdtsc(); // T3：reply 交到该 session 的状态机，可以开始算延迟
                 self.stats.c.received += 1;
-                s.held = Some(Held { mbuf: m, stamp, seq, tx_tsc, t2, t3 });
+                s.held = Some(Held { mbuf: m, stamp, t2, t3 });
                 let deadline = t3 + self.delay;
                 s.state = State::Sleeping { deadline };
                 self.timers.push(deadline, id as u32);
             }
-            _ => {
-                if s.recent_timeouts.contains(&Some(seq)) {
-                    self.stats.c.late += 1;
-                } else {
-                    self.stats.c.unexpected += 1;
-                    let state = match s.state {
-                        State::Waiting { seq: w, .. } => format!("正在等 seq={w}"),
-                        State::Sleeping { .. } => "sleep 中".to_string(),
-                        State::Done => "已结束".to_string(),
-                    };
-                    let next = s.next_seq;
-                    self.stats.note_anomaly(format_args!("unexpected：id={id} seq={seq}，该 session {state}，next_seq={next}"));
-                }
+            // 拒绝：m 在这里 drop（归还 mempool）；在途请求原样保留，等真正的回复或原定的超时
+            Verdict::TscMismatch => {
+                let State::Waiting { stamp, .. } = s.state else { unreachable!("TscMismatch 只在 Waiting 状态下出现") };
+                self.stats.on_tsc_mismatch(id, seq, tx_tsc, stamp.t0);
+            }
+            Verdict::Late => self.stats.c.late += 1,
+            Verdict::Unexpected => {
+                self.stats.c.unexpected += 1;
+                let state = match s.state {
+                    State::Waiting { seq: w, .. } => format!("正在等 seq={w}"),
+                    State::Sleeping { .. } => "sleep 中".to_string(),
+                    State::Done => "已结束".to_string(),
+                };
+                let next = s.next_seq;
+                self.stats.note_anomaly(format_args!("unexpected：id={id} seq={seq}，该 session {state}，next_seq={next}"));
             }
         }
     }
@@ -165,9 +186,8 @@ impl Raw {
             }
             // SPEC 的 loop 形状：sleep 结束后才 record(reply)，然后 reply（mbuf）被释放
             if let Some(h) = s.held.take() {
-                if self.stats.verify_echo(h.stamp, h.tx_tsc, id as u16, h.seq) {
-                    self.stats.on_reply(h.stamp, h.t2, h.t3);
-                }
+                // 这个 reply 的身份在接收时已经核对过（`Session::judge`）
+                self.stats.on_reply(h.stamp, h.t2, h.t3);
                 drop(h.mbuf);
             }
             if self.stopping {
@@ -204,14 +224,11 @@ impl Raw {
     /// 第 3 步（每 100 µs）：超时扫描。超时的请求计为丢失，session 照常 delay 后发下一个。
     fn scan_timeouts(&mut self, now: u64) {
         for (id, s) in self.sessions.iter_mut().enumerate() {
-            if let State::Waiting { seq, timeout_at, .. } = s.state {
-                if now >= timeout_at {
-                    self.stats.c.timeouts += 1;
-                    s.remember_timeout(seq);
-                    let deadline = now + self.delay;
-                    s.state = State::Sleeping { deadline };
-                    self.timers.push(deadline, id as u32);
-                }
+            if s.expire(now).is_some() {
+                self.stats.c.timeouts += 1;
+                let deadline = now + self.delay;
+                s.state = State::Sleeping { deadline };
+                self.timers.push(deadline, id as u32);
             }
         }
     }
@@ -329,4 +346,68 @@ fn finish(
     // SAFETY: 所有 Mbuf / Port 都已释放或关闭，mempool 此后不再被访问。
     unsafe { eal.cleanup() };
     std::process::exit(if mbuf.leaked() == 0 { 0 } else { 3 });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 审查意见 R1 的四个验收场景，在 session 的状态机上验证。与 A 的同名测试（`async-ping/src/driver.rs`）
+    // 是同一组场景、同一组预期；两边的判定都来自 `pingkit::judge`。
+
+    fn waiting(seq: u16, t0: u64, timeout_at: u64) -> Session {
+        let mut s = Session::new(0);
+        s.state = State::Waiting { seq, stamp: Stamp { t0, ..Stamp::default() }, timeout_at };
+        s
+    }
+    /// `on_reply` 在 Accept 时做的状态转换（那里还要读 T3、持有 mbuf，这里只关心状态）。
+    fn complete(s: &mut Session) {
+        s.state = State::Sleeping { deadline: 0 };
+    }
+    fn expect_of(s: &Session) -> Option<(u16, u64)> {
+        match s.state {
+            State::Waiting { seq, timeout_at, .. } => Some((seq, timeout_at)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn wrong_tsc_first_then_the_real_reply() {
+        let mut s = waiting(7, 1_000, 5_000);
+        assert_eq!(s.judge(7, 999), Verdict::TscMismatch);
+        assert_eq!(expect_of(&s), Some((7, 5_000)), "被拒绝的包不得改变在途请求");
+        assert_eq!(s.judge(7, 1_000), Verdict::Accept);
+        complete(&mut s);
+        assert_eq!(s.judge(7, 1_000), Verdict::Unexpected, "同一个回复再来一次（重复包）不能再完成一次");
+    }
+
+    #[test]
+    fn wrong_tsc_first_and_the_real_reply_never_comes() {
+        let mut s = waiting(7, 1_000, 5_000);
+        assert_eq!(s.judge(7, 999), Verdict::TscMismatch);
+        assert_eq!(s.expire(4_999), None, "超时时刻不因被拒绝的包提前或推后");
+        assert_eq!(s.expire(5_000), Some(7));
+        complete(&mut s); // scan_timeouts 在超时后把 session 转入 delay
+        assert_eq!(s.judge(7, 1_000), Verdict::Late, "超时之后真正的回复才到：归为迟到");
+    }
+
+    #[test]
+    fn stale_reply_after_seq_wraparound() {
+        let mut s = waiting(7, 1_000, 5_000);
+        assert_eq!(s.judge(7, 1_000), Verdict::Accept);
+        // …… 65536 个请求之后，seq 又是 7，T0 当然不同
+        s = waiting(7, 900_000, 905_000);
+        assert_eq!(s.judge(7, 1_000), Verdict::TscMismatch, "上一圈的回复（重放 / 迟到很久）");
+        assert_eq!(expect_of(&s), Some((7, 905_000)));
+        assert_eq!(s.judge(7, 900_000), Verdict::Accept);
+    }
+
+    #[test]
+    fn replies_that_match_nothing() {
+        let s = Session::new(0);
+        assert_eq!(s.judge(3, 1), Verdict::Unexpected);
+        let s = waiting(7, 1_000, 5_000);
+        assert_eq!(s.judge(6, 1_000), Verdict::Unexpected);
+        assert_eq!(expect_of(&s), Some((7, 5_000)));
+    }
 }

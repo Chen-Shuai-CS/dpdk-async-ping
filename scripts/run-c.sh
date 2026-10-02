@@ -10,6 +10,9 @@
 # - --mode user（默认）用 ping -U：用户态到用户态的延迟，对应 A 的 T3 − T0；
 #   --mode kernel 用 ping 默认口径：接收时刻取内核的 SO_TIMESTAMP（不含唤醒进程与拷贝）；
 # - ping 进程绑在核 0-2，不碰 runtime 的核 3。
+# - 速率是实测的（scripts/summarize_c.py 用每个 ping 自己报告的实际时长算），不是按 -i 的设定推出来的；
+#   另外 A 是闭环负载（收到回复后等 delay 再发），ping 是开环负载（按固定间隔发，不管回复到没到），
+#   即使平均速率接近，相位、批量和在途请求数的分布也不同——所以 A 与 C 的差值不能全部归因于"有没有绕过内核"。
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
@@ -28,17 +31,19 @@ done
 uflag=""; [[ "$mode" == user ]] && uflag="-U"
 count=$(( dur * 1000 / interval_ms ))
 interval=$(awk -v m="$interval_ms" 'BEGIN{printf "%.3f", m/1000}')
-out="$REPO_ROOT/logs/C-$mode-$(date +%Y%m%d-%H%M%S)"
+out="${C_OUT:-$REPO_ROOT/logs/C-$mode-$(date +%Y%m%d-%H%M%S)}"     # C_OUT：由调用者指定输出目录（scripts/campaign.sh 用）
 mkdir -p "$out"
 log "C：$flows 路 × 每 ${interval_ms} ms，${dur} s，payload ${payload} B，口径 $mode，网卡 $KERNEL_IFACE → $out"
 
 # 一次 sudo 启动全部进程；进程的逐个启动本身会自然错开相位
+wall_start=$(date +%s.%N)
 sudo taskset -c "$HOUSEKEEPING_CPUS" bash -c "
     for i in \$(seq 1 $flows); do
         ping -n $uflag -I $KERNEL_IFACE -i $interval -c $count -s $payload -W 1 $PEER_IP > '$out/ping-'\$i'.txt' 2>&1 &
     done
     wait
 "
+wall_sec=$(awk -v a="$wall_start" -v b="$(date +%s.%N)" 'BEGIN{printf "%.2f", b - a}')
 sudo chown -R "$(id -u):$(id -g)" "$out"
 python3 "$REPO_ROOT/scripts/summarize_c.py" --mode "$mode" --flows "$flows" --interval-ms "$interval_ms" \
-    --duration-sec "$dur" --json "$out/C.json" "$out"/ping-*.txt | tee "$out/summary.txt"
+    --duration-sec "$dur" --wall-sec "$wall_sec" --json "$out/C.json" "$out"/ping-*.txt | tee "$out/summary.txt"

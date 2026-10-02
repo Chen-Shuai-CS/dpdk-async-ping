@@ -3,7 +3,7 @@
 use dpdk::{Eal, Mbuf, Port};
 use pingkit::house::maintain;
 use pingkit::live::{self, Live};
-use pingkit::{Sender, Stats};
+use pingkit::{judge, Sender, Stats, Verdict};
 use pingproto::{arp_reply_in_place, classify, Rx};
 use rt::sync::Mailbox;
 use std::cell::{Cell, RefCell};
@@ -16,8 +16,6 @@ pub struct Reply {
     #[allow(dead_code)]
     pub mbuf: Mbuf,
     pub t2: u64,
-    /// 回复里带回的、我们发送时写入的 TSC；record 时用来核对它确实是这个请求的应答
-    pub tx_tsc: u64,
 }
 
 /// `wait_reply` 超时。
@@ -27,6 +25,8 @@ pub struct Timeout;
 /// 一个 session 在协议侧的状态：正在等哪个 seq、何时超时、以及交付 reply 的信箱。
 pub struct Flow {
     pub expect: Cell<Option<u16>>,
+    /// 在等的那个请求发送时写进包里的 T0：回复必须原样带回它才算数（见 `pingkit::matching`）
+    expect_t0: Cell<u64>,
     pub timeout_at: Cell<u64>,
     recent_timeouts: Cell<[Option<u16>; 4]>,
     rt_pos: Cell<usize>,
@@ -37,6 +37,7 @@ impl Flow {
     fn new() -> Flow {
         Flow {
             expect: Cell::new(None),
+            expect_t0: Cell::new(0),
             timeout_at: Cell::new(0),
             recent_timeouts: Cell::new([None; 4]),
             rt_pos: Cell::new(0),
@@ -44,11 +45,34 @@ impl Flow {
         }
     }
 
-    /// 发送成功后登记"我在等 seq"（在 reply 可能被处理之前，单线程下不存在竞态）。
+    /// 发送成功后登记"我在等 seq，它带着 T0 = t0"（在 reply 可能被处理之前，单线程下不存在竞态）。
     #[inline]
-    pub fn arm(&self, seq: u16, timeout_at: u64) {
+    pub fn arm(&self, seq: u16, t0: u64, timeout_at: u64) {
         self.expect.set(Some(seq));
+        self.expect_t0.set(t0);
         self.timeout_at.set(timeout_at);
+    }
+
+    /// 一个 echo reply 到了：判定它是不是在等的那个请求的应答。只有 `Accept` 才结束等待；
+    /// 其余三种都不改变在途请求的状态和它的超时时刻。
+    #[inline(always)]
+    pub fn accept(&self, seq: u16, echoed_tsc: u64) -> Verdict {
+        let v = judge(self.expect.get().map(|s| (s, self.expect_t0.get())), seq, echoed_tsc, || self.timed_out_before(seq));
+        if v == Verdict::Accept {
+            self.expect.set(None);
+        }
+        v
+    }
+
+    /// 超时扫描：在途请求到了超时时刻就结束等待并记住这个 seq（之后到达的回复归为"迟到"）。返回超时的 seq。
+    pub fn expire(&self, now: u64) -> Option<u16> {
+        let seq = self.expect.get()?;
+        if now < self.timeout_at.get() {
+            return None;
+        }
+        self.expect.set(None);
+        self.remember_timeout(seq);
+        Some(seq)
     }
 
     fn remember_timeout(&self, seq: u16) {
@@ -151,20 +175,23 @@ impl rt::Driver for IcmpDriver<'_> {
                     st.note_anomaly(format_args!("unexpected：id={id} 超出 session 范围，seq={seq}"));
                     return;
                 };
-                if f.expect.get() == Some(seq) {
-                    f.expect.set(None);
-                    if f.mailbox.put(Ok(Reply { mbuf: m, t2, tx_tsc })).is_err() {
-                        sh.stats.borrow_mut().c.unexpected += 1; // 不应发生：信箱里已有未取走的东西
+                match f.accept(seq, tx_tsc) {
+                    Verdict::Accept => {
+                        if f.mailbox.put(Ok(Reply { mbuf: m, t2 })).is_err() {
+                            sh.stats.borrow_mut().c.unexpected += 1; // 不应发生：信箱里已有未取走的东西
+                        }
+                        #[cfg(feature = "probe")]
+                        sh.probe_put_done.set(dpdk::tsc::rdtsc());
                     }
-                    #[cfg(feature = "probe")]
-                    sh.probe_put_done.set(dpdk::tsc::rdtsc());
-                } else if f.timed_out_before(seq) {
-                    sh.stats.borrow_mut().c.late += 1;
-                } else {
-                    let mut st = sh.stats.borrow_mut();
-                    st.c.unexpected += 1;
-                    let expect = f.expect.get();
-                    st.note_anomaly(format_args!("unexpected：id={id} seq={seq}，该 session 正在等 {expect:?}"));
+                    // 拒绝：m 在这里 drop（归还 mempool）；在途请求原样保留，等真正的回复或原定的超时
+                    Verdict::TscMismatch => sh.stats.borrow_mut().on_tsc_mismatch(id, seq, tx_tsc, f.expect_t0.get()),
+                    Verdict::Late => sh.stats.borrow_mut().c.late += 1,
+                    Verdict::Unexpected => {
+                        let mut st = sh.stats.borrow_mut();
+                        st.c.unexpected += 1;
+                        let expect = f.expect.get();
+                        st.note_anomaly(format_args!("unexpected：id={id} seq={seq}，该 session 正在等 {expect:?}"));
+                    }
                 }
             }
             Rx::ForeignEchoReply { src, id, seq } => {
@@ -193,13 +220,9 @@ impl rt::Driver for IcmpDriver<'_> {
         let sh = &*self.sh;
         maintain(self.eal, port, &mut sh.stats.borrow_mut(), &sh.live);
         for f in sh.flows.iter() {
-            if let Some(seq) = f.expect.get() {
-                if now >= f.timeout_at.get() {
-                    f.expect.set(None);
-                    f.remember_timeout(seq);
-                    sh.stats.borrow_mut().c.timeouts += 1;
-                    let _ = f.mailbox.put(Err(Timeout)); // wait_reply 从这里返回 Err
-                }
+            if f.expire(now).is_some() {
+                sh.stats.borrow_mut().c.timeouts += 1;
+                let _ = f.mailbox.put(Err(Timeout)); // wait_reply 从这里返回 Err
             }
         }
         if !sh.stopping.get() {
@@ -215,5 +238,60 @@ impl rt::Driver for IcmpDriver<'_> {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 审查意见 R1 的四个验收场景，在 session 的协议状态（`Flow`）上验证完整的状态转换。
+    // B 的同名测试（`raw-ping/src/main.rs`）跑的是同一组场景、同一组预期。
+
+    /// 同 id/seq、错误时间戳的包先到，随后正确的包到：前者被拒绝，后者完成请求，只完成一次。
+    #[test]
+    fn wrong_tsc_first_then_the_real_reply() {
+        let f = Flow::new();
+        f.arm(7, 1_000, 5_000);
+        assert_eq!(f.accept(7, 999), Verdict::TscMismatch);
+        assert_eq!((f.expect.get(), f.timeout_at.get()), (Some(7), 5_000), "被拒绝的包不得改变在途请求");
+        assert_eq!(f.accept(7, 1_000), Verdict::Accept);
+        assert_eq!(f.expect.get(), None);
+        assert_eq!(f.accept(7, 1_000), Verdict::Unexpected, "同一个回复再来一次（重复包）不能再完成一次");
+    }
+
+    /// 错误的包先到，正确的包一直不来：原请求按原定的时刻超时。
+    #[test]
+    fn wrong_tsc_first_and_the_real_reply_never_comes() {
+        let f = Flow::new();
+        f.arm(7, 1_000, 5_000);
+        assert_eq!(f.accept(7, 999), Verdict::TscMismatch);
+        assert_eq!(f.expire(4_999), None, "超时时刻不因被拒绝的包提前或推后");
+        assert_eq!(f.expire(5_000), Some(7));
+        assert_eq!(f.expect.get(), None);
+        assert_eq!(f.accept(7, 1_000), Verdict::Late, "超时之后真正的回复才到：归为迟到");
+    }
+
+    /// seq 回绕之后，上一圈同一个 seq 的旧回复到达：不得完成新请求。
+    #[test]
+    fn stale_reply_after_seq_wraparound() {
+        let f = Flow::new();
+        f.arm(7, 1_000, 5_000);
+        assert_eq!(f.accept(7, 1_000), Verdict::Accept);
+        // …… 65536 个请求之后，seq 又是 7，T0 当然不同
+        f.arm(7, 900_000, 905_000);
+        assert_eq!(f.accept(7, 1_000), Verdict::TscMismatch, "上一圈的回复（重放 / 迟到很久）");
+        assert_eq!(f.expect.get(), Some(7));
+        assert_eq!(f.accept(7, 900_000), Verdict::Accept);
+    }
+
+    /// 没有在途请求时到达的回复、seq 对不上的回复：都不影响状态。
+    #[test]
+    fn replies_that_match_nothing() {
+        let f = Flow::new();
+        assert_eq!(f.accept(3, 1), Verdict::Unexpected);
+        f.arm(7, 1_000, 5_000);
+        assert_eq!(f.accept(6, 1_000), Verdict::Unexpected);
+        assert_eq!((f.expect.get(), f.timeout_at.get()), (Some(7), 5_000));
     }
 }

@@ -38,9 +38,15 @@ def nic_env():
 
 
 class Case:
-    def __init__(self, name, what, args, expect, rc=0, env=None, action=None, wants_report=True, expect_text=None):
+    def __init__(self, name, what, args, expect, rc=0, env=None, action=None, wants_report=True, expect_text=None, build=None):
         self.name, self.what, self.args, self.expect = name, what, args, expect
         self.rc, self.env, self.action, self.wants_report, self.expect_text = rc, env or {}, action, wants_report, expect_text
+        # build="fault"：用带故障注入钩子的专用构建（target-fault/，cargo 特性 fault）；正式的可执行文件里没有这个钩子
+        self.build = build
+
+
+def bin_dir(case):
+    return os.path.join(ROOT, "target-fault/release" if case.build == "fault" else "target/release")
 
 
 def sig(name, after, pause=None):
@@ -136,6 +142,32 @@ def cases():
              lambda r, x: (x["second_refused"] and x["second_rc"] == 2 and c(r)["timeouts"] == 0,
                            f"第二个进程被拒绝（退出码 {x['second_rc']}）；先启动的进程不受影响，收到 {c(r)['received']:,}，超时 {c(r)['timeouts']}"),
              action="second"),
+        # ---- 发送持续失败时还能不能按时收尾（审查意见 R2）。用带钩子的专用构建：BQ_FAULT_TX=<txfull|nombuf>:<起>[-<止>]（秒） ----
+        Case("tx-stuck-txfull", "发送从第 2 秒起一直失败（TX 环满），直到 duration（4 秒）到期：必须按时收尾，不能卡在重试里",
+             ["--delay-us", "500", "--duration-sec", "4"],
+             lambda r, x: (c(r)["tx_full"] > 1000 and r["elapsed_sec"] < 4.5 and c(r)["received"] > 100_000 and c(r)["timeouts"] == 0,
+                           f"实际 {r['elapsed_sec']:.2f} s 结束（设定 4 s）；发送失败 {c(r)['tx_full']:,} 次；故障前收到 {c(r)['received']:,}，超时 {c(r)['timeouts']}"),
+             env={"BQ_FAULT_TX": "txfull:2"}, build="fault"),
+        Case("tx-stuck-nombuf", "发送从第 2 秒起一直失败（取不到 mbuf），直到 duration（4 秒）到期",
+             ["--delay-us", "500", "--duration-sec", "4"],
+             lambda r, x: (c(r)["no_mbuf"] > 1000 and r["elapsed_sec"] < 4.5 and c(r)["received"] > 100_000 and c(r)["timeouts"] == 0,
+                           f"实际 {r['elapsed_sec']:.2f} s 结束（设定 4 s）；发送失败 {c(r)['no_mbuf']:,} 次；故障前收到 {c(r)['received']:,}，超时 {c(r)['timeouts']}"),
+             env={"BQ_FAULT_TX": "nombuf:2"}, build="fault"),
+        Case("tx-stuck-sigint", "发送从第 2 秒起一直失败，第 4 秒收到 SIGINT（设定 60 秒）：必须立刻收尾",
+             ["--delay-us", "500", "--duration-sec", "60"],
+             lambda r, x: (x["exit_delay"] < 2 and "SIGINT" in r["exit_reason"] and c(r)["tx_full"] > 1000,
+                           f"信号后 {x['exit_delay']:.2f} s 退出；{r['exit_reason']}；发送失败 {c(r)['tx_full']:,} 次"),
+             env={"BQ_FAULT_TX": "txfull:2"}, action=sig("INT", 4), build="fault"),
+        Case("tx-recovers-late", "发送在第 2 ~ 8 秒之间失败，duration 4 秒：停止之后才恢复。不能等到恢复，也不能在停止阶段再发新请求",
+             ["--delay-us", "500", "--duration-sec", "4"],
+             lambda r, x: (r["elapsed_sec"] < 4.5 and x["wall_sec"] < 8 and c(r)["tx_full"] > 1000 and c(r)["timeouts"] == 0,
+                           f"实际 {r['elapsed_sec']:.2f} s 结束，进程总共存活 {x['wall_sec']:.1f} s（故障要到第 8 秒才解除）；发出 {c(r)['sent']:,} = 收到 {c(r)['received']:,}"),
+             env={"BQ_FAULT_TX": "txfull:2-8"}, build="fault"),
+        Case("tx-never-works", "发送从一开始就一直失败（duration 2 秒）：一个请求也发不出去，报告仍然要合法",
+             ["--delay-us", "500", "--duration-sec", "2"],
+             lambda r, x: (c(r)["sent"] == 0 and c(r)["received"] == 0 and r["elapsed_sec"] < 2.5 and c(r)["tx_full"] > 1000,
+                           f"发出 {c(r)['sent']}，收到 {c(r)['received']}，实际 {r['elapsed_sec']:.2f} s 结束；发送失败 {c(r)['tx_full']:,} 次；报告正常生成"),
+             env={"BQ_FAULT_TX": "txfull:0"}, build="fault"),
         Case("bad-sessions", "非法参数：--sessions 0", ["--delay-us", "500", "--duration-sec", "1", "--sessions", "0"], None, rc=2,
              wants_report=False, expect_text="--sessions 至少为 1"),
         Case("bad-payload", "非法参数：--payload 1473（超过 MTU）", ["--delay-us", "500", "--duration-sec", "1", "--payload", "1473"], None,
@@ -154,7 +186,7 @@ def run_case(case, client, nic, outdir):
     base = {"--pci": nic["DPDK_PCI"], "--src-ip": nic["DPDK_IP"], "--dst-ip": nic["PEER_IP"], "--dst-mac": nic["PEER_MAC"]}
     for i in range(0, len(case.args), 2):   # 场景自己给了的参数优先
         base.pop(case.args[i], None)
-    cmd = ["sudo"] + [f"{k}={v}" for k, v in case.env.items()] + [os.path.join(ROOT, "target/release", binary)]
+    cmd = ["sudo"] + [f"{k}={v}" for k, v in case.env.items()] + [os.path.join(bin_dir(case), binary)]
     for k, v in base.items():
         cmd += [k, v]
     cmd += case.args + ["--progress-sec", "0", "--json", json_path]
@@ -186,9 +218,9 @@ def run_case(case, client, nic, outdir):
         checks.append(("mbuf 零泄漏", m["avail_initial"] == m["avail_final"]))
         checks.append(("请求对账 = 0", c["sent"] - c["received"] - c["timeouts"] - c["in_flight_at_end"] == 0))
         checks.append(("收包对账 = 0",
-                       c["rx_pkts"] - (c["received"] + c["late"] + c["unexpected"] + c["foreign"] + c["other_rx"] + c["arp_replies"]) == 0))
+                       c["rx_pkts"] - (c["received"] + c["late"] + c["unexpected"] + c["foreign"] + c["tsc_mismatch"] + c["other_rx"] + c["arp_replies"]) == 0))
         samples = next(x["count"] for x in r["metrics"] if x["name"].startswith("in-process"))
-        checks.append(("样本数 = received − tsc_mismatch", samples == c["received"] - c["tsc_mismatch"]))
+        checks.append(("样本数 = received", samples == c["received"]))
         ok, detail = case.expect(r, extra)
         checks.append(("场景预期", ok))
         extra["exit_reason"] = r["exit_reason"]
@@ -209,6 +241,9 @@ def main():
     outdir = os.path.join(ROOT, "logs/fault", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
     os.makedirs(outdir)
     todo = [c for c in cases() if a.only in c.name]
+    if any(c.build == "fault" for c in todo):
+        subprocess.run("source $HOME/.cargo/env && cargo build --release -q -p async-ping -p raw-ping --features fault --target-dir target-fault",
+                       shell=True, cwd=ROOT, check=True, executable="/bin/bash")
     results = []
     for case in todo:
         for client in a.clients.split(","):
@@ -226,7 +261,7 @@ def main():
         lines.append(f"| `{r['case']}` | {r['what']} | {r['client']} | {verdict} | {r['detail']} |")
     passed = sum(r["ok"] for r in results)
     lines.append(f"\n共 {len(results)} 项，通过 {passed} 项。每一项都核对：没有崩溃、退出码符合预期、mbuf 零泄漏、请求对账 = 0、收包对账 = 0、"
-                 "样本数 = received − tsc_mismatch，以及该场景特有的预期。")
+                 "样本数 = received，以及该场景特有的预期。")
     with open(os.path.join(outdir, "summary.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
     print(f"\n{passed}/{len(results)} 通过 → {outdir}/summary.md")

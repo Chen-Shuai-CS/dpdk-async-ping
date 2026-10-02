@@ -71,7 +71,7 @@ impl Dataplane {
 
         let lock = instance_lock(&args.pci)?;
         let eal = Eal::init(&args.eal_args()).map_err(|e| e.to_string())?;
-        let pool = Mempool::create_pktmbuf_pool("bq_pool", args.mbufs, MEMPOOL_CACHE, DATA_ROOM, 0)
+        let pool = Mempool::create_pktmbuf_pool(&eal, "bq_pool", args.mbufs, MEMPOOL_CACHE, DATA_ROOM, 0)
             .map_err(|e| e.to_string())?;
         let avail_initial = pool.avail_count();
         let port = Port::configure(&eal, 0, pool, args.rxd, args.txd).map_err(|e| e.to_string())?;
