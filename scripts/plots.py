@@ -244,6 +244,50 @@ def plot_drift(session_dir, out):
     save(fig, out, f"drift-{meta['name']}.png")
 
 
+def plot_day(raw, out):
+    """一次开机里 v1 的 A、v2 的 A、B 轮流跑：三条序列放在同一条时间轴上。"""
+    import datetime
+    name = os.path.basename(raw.rstrip("/"))[: -len("-raw")]
+    runs = []
+    for phase in ("rot", "drift"):
+        for p in glob.glob(os.path.join(raw, phase, "*.json")):
+            with open(p) as f:
+                runs.append((os.path.basename(p).split("-")[0], json.load(f)))
+    boot = None
+    for d in glob.glob(os.path.join(os.path.dirname(raw.rstrip("/")), name + "-v*")):
+        with open(os.path.join(d, "meta.json")) as f:
+            meta = json.load(f)
+        boot = datetime.datetime.strptime(meta["boot_time"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+        tag = "A1" if meta.get("version") == "v1" else "A2"
+        for side in ("A", "B"):
+            p = os.path.join(d, side + "-600.json")
+            if os.path.exists(p):
+                with open(p) as f:
+                    runs.append((tag if side == "A" else "B", json.load(f)))
+    if boot is None or len(runs) < 20:
+        return
+    t = lambda r: (r["env"]["started_unix"] + r["duration_sec"] / 2 - boot) / 60
+    tot = lambda r: sum(metric(r, n)["mean"] for n in ("seg①", "seg②", "seg③"))
+    series = (("A1", "#ff9896", T("A（v1）", "A (v1)")), ("A2", CA, T("A（v2）", "A (v2)")), ("B", CB, "B"))
+    panels = [(lambda r: metric(r, "seg②")["p99_interp"], T("段② 的 p99（ns）", "seg2 p99 (ns)")),
+              (lambda r: metric(r, "in-process")["p99_interp"], T("进程内 p99（ns）", "in-process p99 (ns)")),
+              (tot, T("段①+②+③ 平均值之和（ns）", "seg1+seg2+seg3 mean (ns)"))]
+    fig, axes = plt.subplots(3, 1, figsize=(10, 7.6), sharex=True)
+    for ax, (fn, label) in zip(axes, panels):
+        for tag, col, lab in series:
+            rs = [r for g, r in runs if g == tag]
+            ax.scatter([t(r) for r in rs], [fn(r) for r in rs], s=[10 if r["duration_sec"] < 60 else (26 if r["duration_sec"] < 600 else 70) for r in rs],
+                       color=col, label=lab, alpha=0.85, linewidths=0)
+        ax.set_ylabel(label, fontsize=9)
+        ax.grid(True, alpha=0.25)
+        ax.legend(loc="upper right", ncol=3, fontsize=9)
+    axes[2].set_xlabel(T("距开机多少分钟（每个点是一次运行；大点 = 10 分钟的运行，中点 = 60 秒，小点 = 20 秒）",
+                         "minutes since boot (one point per run; large = 10-minute run, medium = 60 s, small = 20 s)"))
+    fig.suptitle(T(f"会话 {name}：同一次开机里 v1 的 A、v2 的 A、B 轮流运行",
+                   f"Session {name}: A (v1), A (v2) and B in rotation within one boot"), fontsize=10, y=0.92)
+    save(fig, out, f"day-{name}.png")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ci", default="logs/final/ci.json")
@@ -272,7 +316,10 @@ def main():
         plot_abba(ab if os.path.isabs(ab) else os.path.join(ROOT, ab), out)
     for root in ("logs/v1/sessions", "logs/sessions"):
         for d in sorted(glob.glob(os.path.join(ROOT, root, "*/"))):
-            plot_drift(d, out)
+            if d.rstrip("/").endswith("-raw"):
+                plot_day(d, out)
+            elif not glob.glob(d.rstrip("/").rsplit("-", 1)[0] + "-raw"):
+                plot_drift(d, out)   # 两个版本同场的会话画在 day-<名字>.png 里，不再各画一张
 
 
 if __name__ == "__main__":
