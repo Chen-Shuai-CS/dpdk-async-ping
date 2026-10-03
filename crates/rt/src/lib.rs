@@ -21,6 +21,8 @@
 //! - **Mailbox**（[`sync::Mailbox`]）：reactor 与 task 之间交接 mbuf 所有权的单槽信箱。
 //!
 //! 不提供：跨核调度、IO 以外的阻塞操作、通用网络协议栈。
+//!
+//! 约束：每个线程同时只 Enter 一个 runtime；Sleep 在另一个 runtime 的作用域内被 drop 会改写它的 timer 槽（逻辑损坏），越界则 panic（内存安全）。
 
 pub mod executor;
 #[cfg(feature = "probe")]
