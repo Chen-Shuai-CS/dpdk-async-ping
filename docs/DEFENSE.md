@@ -63,6 +63,8 @@ scripts/run.sh B --delay-us 500 --duration-sec 20 --diag-pre-t0 mfence
 python3 scripts/fault.py --only sigint
 ```
 
+（`--only` 按名字片段匹配，`sigint` 会连同 `tx-stuck-sigint` 一起跑：4 项，约 25 秒。）
+
 ```bash
 scripts/check-compliance.sh --quick
 ```

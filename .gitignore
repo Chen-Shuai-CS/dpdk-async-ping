@@ -10,3 +10,6 @@
 /logs/[AB]-2*.log
 /logs/[AB]-2*.json
 /target-fault
+# 直接运行 scripts/setup.sh、scripts/run.sh C 时自动生成的日志与结果（随手运行的产物；正式的 C 数据在 logs/c/）
+/logs/setup-*.log
+/logs/C-*/

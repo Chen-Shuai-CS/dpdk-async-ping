@@ -62,7 +62,8 @@ if want aux; then
         log "▶ C（$1，$2 路，$3 秒）→ logs/c/$1-$2flow"
         C_OUT="$REPO_ROOT/logs/c/$1-$2flow" scripts/run-c.sh --mode "$1" --flows "$2" --duration-sec "$3" | grep -E "^速率|^sent" | sed 's/^/    /'
         # 逐包的原始输出很大（64 路 60 秒约 230 MB），不进仓库：压缩后留在本机的 logs/tmp/ 里，C.json 里有全部统计
-        tar -C "logs/c/$1-$2flow" -czf "logs/tmp/c-raw-$1-$2flow.tar.gz" --wildcards 'ping-*.txt' && rm -f "logs/c/$1-$2flow"/ping-*.txt
+        # （tar 建档时不展开通配符，所以先进目录、由 shell 展开文件名；归档成功才删原文件）
+        (cd "logs/c/$1-$2flow" && tar -czf "$REPO_ROOT/logs/tmp/c-raw-$1-$2flow.tar.gz" ping-*.txt) && rm -f "logs/c/$1-$2flow"/ping-*.txt
     done
     matched_delay() {  # matched_delay <session 数> <C 的 C.json> <试跑用的 delay>：输出让 A 的实测速率对齐 C 的 delay（µs）
         RUN_LOG=/dev/null scripts/run.sh A --progress-sec 0 --json "logs/tmp/match-$1.json" --delay-us "$3" --duration-sec 10 --sessions "$1" > /dev/null 2>&1
