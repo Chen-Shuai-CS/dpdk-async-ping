@@ -9,8 +9,8 @@ pub struct Stamp {
     pub t0: u64,
     /// T1：tx_burst 返回、doorbell 已敲
     pub t1: u64,
-    /// 诊断：距离上一次发送（上一个 T1）多久。ENA 每次发送前有一次 sfence，
-    /// 要等上一个包的写合并缓冲排空，所以背靠背的发送段①会明显更长。
+    /// 诊断：距离上一次发送（上一个 T1）多久。上一次发送最后写网卡门铃寄存器要约 250 ~ 300 ns 才完成，
+    /// 这期间 CPU 的写入队列被它堵住，所以背靠背的发送段①会明显更长（机制与实验见 docs/REPORT.md §4）。
     pub since_prev_tx: u64,
     /// 诊断（`probe` 特性）：段①的三个子步骤
     #[cfg(feature = "probe")]

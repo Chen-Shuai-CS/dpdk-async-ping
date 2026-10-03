@@ -66,7 +66,7 @@ pub struct Stats {
     /// 主循环空转停顿（见 `dpdk::tsc::StallWatch`），结束时由调用方填入
     pub stalls: dpdk::tsc::StallWatch,
     /// 诊断：段① 按"距上一次发送多久"分档：<100 ns / 100–250 / 250–500 / 500 ns–2 µs / ≥2 µs。
-    /// ENA 每次发送前有一次 sfence，要等上一个包的写合并缓冲排空，所以间隔越短段①越长。
+    /// 上一次发送的门铃写入要约 250 ns 才完成、期间堵住 CPU 的写入队列，所以间隔越短段①越长（docs/REPORT.md §4）。
     pub seg1_by_gap: [Hist; 5],
     /// 分档边界（TSC 周期），见 [`Stats::with_hz`]
     pub gap_edges: [u64; 4],
@@ -139,7 +139,7 @@ impl Stats {
         self.seg1_by_gap[bucket].record(s1);
         #[cfg(feature = "probe")]
         if bucket >= 2 {
-            // 排除"距上次发送 < 250 ns"的发送：那一类的写合并等待已由上面的分档单独统计
+            // 排除"距上次发送 < 250 ns"的发送：那一类被上一次门铃写入拖住的等待已由上面的分档单独统计
             let p = s.probe;
             self.probe_send[0].record(p.alloc);
             self.probe_send[1].record(p.build);
