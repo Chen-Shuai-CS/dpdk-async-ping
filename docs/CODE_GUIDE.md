@@ -212,7 +212,7 @@ B 没有 task、没有 Waker、没有就绪队列。每个 session 是状态表�
 | ④ T2 → 认包 → T3 | `on_rx`（90 行）：`rx_burst` → T2（95 行）→ `classify` → `on_reply`（123 行）→ **T3**（131 行） | 认出包之后直接改状态，没有信箱、Waker、就绪队列、poll |
 | ⑤ 收尾 | `on_reply` 里：把回复存进 `held`，状态改成 `Sleeping`，deadline 入堆 | |
 
-**把两边放在一起看**，A 多出来的就是：信箱（`sync.rs`）、Waker 和就绪队列（`executor.rs`）、timer 的槽位表（`timer.rs`）、以及 async fn 被编译器变成的状态机。这些加起来就是"抽象税"，README §1.1 有逐项的量化。
+**把两边放在一起看**，A 多出来的就是：信箱（`sync.rs`）、Waker 和就绪队列（`executor.rs`）、timer 的槽位表（`timer.rs`）、以及 async fn 被编译器变成的状态机。这些加起来就是"抽象税"，`docs/DESIGN.md` §1 有逐项的量化。
 
 ### 2.4 每 100 µs 一次的维护节拍
 
@@ -487,7 +487,7 @@ A 和 B 的判定来自同一个函数 `pingkit::matching::judge`（`matching.rs
 打印在 `stats.rs:380` `Report::print` 的开头：
 
 - 请求对账：`sent − received − timeouts − in-flight = 0`；
-- 收包对账：`rx − (received + late + unexpected + foreign + other + arp) = 0`。
+- 收包对账：`rx − (received + late + unexpected + foreign + tsc-mismatch + other + arp) = 0`（`tsc-mismatch` 是接收时被拒绝的回复，v4 起单独成一类）。
 
 为了让第二条成立，认包的每个分支都必须给某个计数器加一（包括"ARP 应答没发出去"这种角落，见 `driver.rs` 和 `raw-ping/src/main.rs` 里 `ArpRequest` 分支的 `else`）。
 
@@ -630,6 +630,7 @@ logs/                                  仓库里只有当前版本（v4）最新
   c/                系统 ping（C）：user / kernel 两种口径 × 64 路 / 单路，各一个 C.json + summary.txt
   fault/<时间>/     故障注入：每个场景的日志、JSON、汇总
   soak/             30 分钟连续运行
+  timer-batch/      timer"批量唤醒"与"触发一个、poll 一个"的同场对照（6 轮）
   sessions/         重启之后的复测会话（v4-reboot1、v4-reboot2；各有 A-600 / B-600、ci.json、ab/、drift/）；v4-reboot2/placement/ 是"文件实例"的追查实验，otherlog/ 是"无关帧"内容的诊断记录
   probe/            probe 构建的诊断
   versions-ab/      上一个版本与当前版本的同场对比（v3-vs-v4）
@@ -638,7 +639,8 @@ logs/                                  仓库里只有当前版本（v4）最新
   tmp/              临时文件、原始样本、C 的逐包输出压缩包（不进仓库）
 docs/
   REPORT.md         延迟报告（由 logs/ 生成）   HISTORY.md   v1 ~ v3 的测量与结论（冻结的历史摘要）
-  REVIEW.md         外部代码审查六条意见的处理表   DEFENSE.md   答辩提纲
+  DESIGN.md         设计与实现说明（抽象税的来源与优化取舍、设计要点、测试、异常处理细则、异常汇总）
+  REVIEW.md         两轮外部代码审查（R1 ~ R11）与补充意见的处理记录   DEFENSE.md   答辩提纲
   WORKLOG.md        工作记录的副本               CODE_GUIDE.md 本文的副本
   img/              报告用的图                  img/history/ 历史摘要用的图
 
@@ -647,6 +649,7 @@ docs/
   docs-before-v4/   v3 时的 README、报告、答辩提纲和图        docs-v1/、docs-v2/  更早两版冻结的报告
   scripts-before-v4/ 当时的报告 / 出图脚本（含会话表、时间轴等历史章节的生成代码）和 session.sh / day.sh 等
   v3-campaign-stopped-20261002/  被云平台事件打断的那次 v3 重测      v4-first-attempt/  v4 第一版的同场对比与二分的全部数据
+  v4-notes/         v4 之后的零散实验：mbuf-exhaust 的计数器调查、无关帧诊断（otherlog/）、文件实例实验（placement/、reboot2-build2/）、timer 批量唤醒的对照（timer-batch/）
 ```
 
 每个 JSON 都带 `env` 字段，其中 `git_commit` 是构建那个二进制时的提交号；一组数据旁边的 `meta.json` 记着它属于哪次开机、哪个代码版本。
@@ -703,6 +706,10 @@ poll 的过程中这个 task 可能又被唤醒（比如它自己唤醒自己）
 
 **为什么 B 的 T0 不取在"发现 timer 到期"的那一刻？**
 A 的顺序是"sleep 返回 → record → 进入 send() 才读 T0"，record 不在 A 的段①里。B 的 T0 若提前，它的段①就多包含了 record，两边不再对齐。
+
+**为什么收包是"分发一个包、马上 poll"，timer 却是"到期的全部唤醒、再统一 poll"？**
+收包一侧这样做是为了不让同一批里靠前的包被整批拖慢（并与 B"处理一个包、改一个状态"对齐），量的是计分的段②。timer 一侧的 `Timers::fire`（`timer.rs:73`）当时没有这样做。
+后来做过对照实验（`logs/timer-batch/`）：改成"触发一个、马上 poll 一个"，段③ p99 平均低约 115 ns，排名指标不变；只改善不计分的段③，所以没有并入。改法见那个目录里的 `fire1.diff`。
 
 **为什么 `Sleep` 第一次 poll 不看时钟？**
 "到没到期"只在主循环的 timer 阶段判断，那里每轮本来就读一次时钟。在 `Sleep` 里再读一次是多余的（约 18 ns），而且恰好发生在 session 拿到回复之后，会让同一批里后面的包多等。v2 去掉了它。

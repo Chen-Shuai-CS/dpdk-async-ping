@@ -343,7 +343,7 @@ def section_diag(a):
 
 
 def tax_parts(pa, pb, cip):
-    """把每请求的 A − B 拆成三项：接收路径本身 / 批内排队 / 发送侧调度（见 README §1.1）。"""
+    """把每请求的 A − B 拆成三项：接收路径本身 / 批内排队 / 发送侧调度（见 docs/DESIGN.md §1）。"""
     A, B, c = load(pa), load(pb), load(cip)
     mean = lambda r, n: metric(r, n)["mean"]
     bp = c["burst_position"]

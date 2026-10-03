@@ -1,0 +1,46 @@
+diff --git a/crates/rt/src/runtime.rs b/crates/rt/src/runtime.rs
+index 83963e4..0d79cd1 100644
+--- a/crates/rt/src/runtime.rs
++++ b/crates/rt/src/runtime.rs
+@@ -189,8 +189,12 @@ impl Runtime {
+             // 停顿检测（空轮询）：复用这次时钟读数。上一次读时钟之后什么都没干，间隔却很长 → 被外部打断
+             watch.tick(now, worked);
+             worked = false;
+-            let fired = core.timers.borrow_mut().fire(now);
+-            if fired > 0 {
++            // 实验（fire1）：与 reactor 相同的"交出一个、马上 poll 一个"
++            loop {
++                let woke = core.timers.borrow_mut().fire_one(now);
++                if !woke {
++                    break;
++                }
+                 worked = true;
+                 core.exec.run_ready();
+             }
+diff --git a/crates/rt/src/timer.rs b/crates/rt/src/timer.rs
+index 9af07a7..fbd8e07 100644
+--- a/crates/rt/src/timer.rs
++++ b/crates/rt/src/timer.rs
+@@ -68,6 +68,22 @@ impl Timers {
+         self.heap.is_empty()
+     }
+ 
++    /// 实验（fire1）：只触发一个到期的 timer；返回是否唤醒了一个 task。
++    #[inline]
++    pub(crate) fn fire_one(&mut self, now: u64) -> bool {
++        while let Some((_, idx)) = self.heap.pop_expired(now) {
++            match std::mem::replace(&mut self.slots[idx as usize], Slot::Fired(now)) {
++                Slot::Pending(w) => {
++                    w.wake();
++                    return true;
++                }
++                Slot::Cancelled => self.release(idx),
++                other => self.slots[idx as usize] = other,
++            }
++        }
++        false
++    }
++
+     /// 触发所有 deadline ≤ now 的 timer。返回唤醒的数量。
+     #[inline]
+     pub(crate) fn fire(&mut self, now: u64) -> usize {
